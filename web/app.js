@@ -265,7 +265,11 @@ async function openSong(id) {
   const song = await getJSON(`/api/song/${id}`);
   state.song = song;
   const main = song.versions.find((v) => v.version_type === "album" && playable(v.play)) || song.versions.find((v) => playable(v.play));
-  const versions = song.versions.map((version) => `
+  // The album version is shown as "Appears on" (its releases, editions grouped);
+  // "Other versions" lists only remixes, demos, snippets ... with their own links.
+  const albumTracks = song.versions.filter((v) => v.version_type === "album").flatMap((v) => v.tracks);
+  const others = song.versions.filter((v) => v.version_type !== "album");
+  const versions = others.map((version) => `
     <div class="version">
       <div class="head"><strong>${esc(version.version_name || VERSION_TYPES[version.version_type] || "Version")}</strong>
         <span class="tag">${esc(VERSION_TYPES[version.version_type] || version.version_type || "")}</span>
@@ -274,10 +278,10 @@ async function openSong(id) {
         ${(version.links || []).map((l) => `<a class="mini-listen" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer"
           title="${esc(l.url)}" style="--svc:${serviceOf(l.url).color}">▶ ${esc(serviceOf(l.url).name)}</a>`).join("")}</div>
       ${version.first_known_date ? `<div class="track">Known since ${esc(version.first_known_date)}</div>` : ""}
-      ${version.tracks.map((t) => `<div class="track"><a href="#/release/${t.release_id}">${esc(t.release)}</a>
-        (${esc(t.release_date || "?")}${t.discography === "unofficial" ? ", bootleg" : ""}) — track ${t.disc_number > 1 ? `${t.disc_number}-` : ""}${t.track_number}
-        ${t.track_title && t.track_title !== song.title ? `“${esc(t.track_title)}”` : ""} ${duration(t.duration_ms)}</div>`).join("")}
-    </div>`).join("") || `<p class="muted">No versions yet: this song is known from sources only.</p>`;
+      ${appearsOn(version.tracks, song.title) || `<div class="track">Not on a release</div>`}
+    </div>`).join("");
+  const appears = appearsOn(albumTracks, song.title)
+    || `<p class="muted">${song.versions.length ? "Not on a release (yet)." : "No versions yet: this song is known from sources only."}</p>`;
   const roles = Object.keys(song.credits).sort((a, b) => {
     const ia = ROLE_ORDER.indexOf(a), ib = ROLE_ORDER.indexOf(b);
     return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
@@ -317,10 +321,46 @@ async function openSong(id) {
       ${song.listen.length ? `<div class="listen">${serviceLinks(song.listen.map((l) => l.url))}</div>` : ""}
       ${lyricsLink(song)}
     </div></div>
-    <h3>Versions</h3>${compareVersions(song)}${versions}
+    <h3>Appears on</h3>${appears}
+    ${others.length ? `<h3>Other versions</h3>${compareVersions(song)}${versions}` : ""}
     <h3>Credits</h3>${credits ? `<dl class="credits">${credits}</dl>` : `<p class="muted">No credits yet.</p>`}
     <h3>Sources</h3>${serviceLinks(urls) || `<p class="muted">No links.</p>`}`;
   showPanel();
+}
+
+// Releases a version is on: one entry per release group (its first edition), the other
+// editions under it ("Target limited edition", or date and track count); bootlegs after
+// the official releases, folded when there are official ones.
+function appearsOn(tracks, songTitle) {
+  if (!tracks.length) return "";
+  const groups = new Map();
+  for (const track of tracks) {
+    if (!groups.has(track.group_id)) groups.set(track.group_id, []);
+    groups.get(track.group_id).push(track);
+  }
+  const order = (a, b) => (a.release_date || "9999").localeCompare(b.release_date || "9999") || a.release_id - b.release_id;
+  const entries = [...groups.values()].map((items) => items.sort(order)).sort((a, b) => order(a[0], b[0]));
+  const editionName = (t) => t.edition ? `${t.edition} (${t.release_tracks} tracks)`
+    : `${fmtDate(t.release_date) || "no date"} (${t.release_tracks} tracks)`;
+  const entry = (items) => {
+    const t = items[0];
+    const type = (RELEASE_TYPES[t.release_type] || t.release_type || "").replace(/s$/, "");
+    const position = `track ${t.disc_number > 1 ? `${t.disc_number}-` : ""}${t.track_number}`;
+    const spelled = t.track_title && t.track_title !== songTitle ? ` · “${esc(t.track_title)}”` : "";
+    return `<div class="appear">
+      <a class="appear-main" href="#/release/${t.release_id}">
+        <img class="cover small" src="covers/${esc(t.cover_file || "artist.jpg")}" alt="" loading="lazy">
+        <span><span class="title">${esc(t.release)}</span>
+          <span class="muted">${esc(type)} · ${esc(fmtDate(t.release_date) || "no date")} · ${position}${spelled}${t.duration_ms ? ` · ${duration(t.duration_ms)}` : ""}</span></span></a>
+      ${items.length > 1 ? `<div class="editions">${items.length} editions: ${items.map((e) =>
+        `<a href="#/release/${e.release_id}">${esc(editionName(e))}</a>`).join(" · ")}</div>` : ""}
+    </div>`;
+  };
+  const official = entries.filter((items) => items[0].discography === "official");
+  const bootlegs = entries.filter((items) => items[0].discography !== "official");
+  const unofficial = bootlegs.map(entry).join("");
+  return official.map(entry).join("") + (!bootlegs.length ? "" : official.length
+    ? `<details class="bootlegs"><summary>Also on ${plural(bootlegs.length, "bootleg")}</summary>${unofficial}</details>` : unofficial);
 }
 
 // Lyrics stay on Genius (they are copyrighted): only a link to the song page there.

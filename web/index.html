@@ -81,7 +81,6 @@
 <nav class="drawer" id="drawer" aria-label="Sections" hidden>
   <div class="drawer-head"><strong>Lil Wayne Tracker</strong>
     <button class="icon-button" id="menu-close" aria-label="Close menu">×</button></div>
-  <a class="tab" data-tab="about" href="#/about">About Lil Wayne</a>
   <a class="tab" data-tab="songs" href="#/songs">Songs</a>
   <a class="tab" data-tab="eras" href="#/eras">Eras</a>
   <a class="tab" data-tab="timeline" href="#/timeline">Timeline</a>
@@ -89,6 +88,7 @@
   <a class="tab" data-tab="people" href="#/people">People</a>
   <a class="tab" data-tab="stats" href="#/stats">Statistics</a>
   <a class="tab" data-tab="review" href="#/review">Needs review <span id="review-count"></span></a>
+  <a class="tab tab-bottom" data-tab="about" href="#/about">About Lil Wayne</a>
 </nav>
 
 <main>
@@ -202,10 +202,12 @@
 </div>
 
 <div class="player-bar" id="player" hidden>
-  <button class="pl-meta" id="pl-expand" title="Open the player">
-    <img class="cover small" id="pl-cover" src="covers/artist.jpg" alt="">
-    <span class="pl-text"><span class="title" id="pl-title"></span><span class="muted" id="pl-artist"></span></span>
-  </button>
+  <div class="pl-meta">
+    <button class="pl-cover-btn" id="pl-expand" title="Open the player" aria-label="Open the player">
+      <img class="cover small" id="pl-cover" src="covers/artist.jpg" alt=""></button>
+    <span class="pl-text"><button class="title pl-title-btn" id="pl-title" title="Open the player"></button>
+      <span class="muted pl-sub"><span id="pl-artist"></span><a class="pl-album" id="pl-album" href="#/releases" hidden></a></span></span>
+  </div>
   <div class="pl-center">
     <div class="pl-controls">
       <button class="pl-btn mode" data-pl="shuffle" title="Shuffle" aria-label="Shuffle" aria-pressed="false">🔀</button>
@@ -236,7 +238,6 @@
       <h2 id="pf-title"></h2>
       <div class="muted" id="pf-artist"></div>
       <div class="pf-hint" id="pf-hint" hidden></div>
-      <div class="pf-embed" id="pf-embed"><div id="pf-spotify"></div><div id="pf-apple"></div></div>
       <div class="pl-progress"><span class="pl-time" data-pl-time>0:00</span>
       <input type="range" class="pl-seek" min="0" max="1000" value="0" aria-label="Position">
       <span class="pl-time" data-pl-duration>0:00</span></div>
@@ -250,6 +251,7 @@
       <div class="pl-volume"><button class="pl-btn small" data-pl="mute" title="Mute" aria-label="Mute">🔊</button>
       <input type="range" class="pl-vol" min="0" max="100" value="80" aria-label="Volume"></div>
       <div class="pf-source"><span class="pl-source" data-pl-source></span></div>
+      <div class="pf-embed" id="pf-embed"><div id="pf-spotify"></div><div id="pf-apple"></div></div>
     </div>
     <div class="pf-side">
       <div class="pf-tabs" role="tablist">

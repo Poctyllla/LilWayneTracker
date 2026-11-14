@@ -71,7 +71,7 @@ function coverUrl(song) {
 
 // Queue items: {qid, id (song), v (version), title, artist, cover, spotify, apple, file_id}.
 function songItem(song) {
-  return { id: song.id, title: song.title, artist: song.artist, cover: coverUrl(song), ...song.play };
+  return { id: song.id, title: song.title, artist: song.artist, cover: coverUrl(song), album: song.album, ...song.play };
 }
 
 // "▶ Listen" and "+" (add to queue) for an item that can be played; nothing otherwise.
@@ -198,7 +198,7 @@ function playCurrent(replay = false) {
     const url = item.apple.replace("://music.apple.com/", "://embed.music.apple.com/");
     $("pf-apple").innerHTML = `<iframe title="Apple Music player" src="${esc(url)}" height="175" loading="lazy"
       allow="autoplay *; encrypted-media *; clipboard-write" sandbox="allow-forms allow-popups allow-same-origin allow-scripts allow-storage-access-by-user-activation allow-top-navigation-by-user-activation"></iframe>`;
-    showHint("Press play in the Apple Music player.");
+    showHint("Press play in the Apple Music player below.");
     openFull(true);
   }
   mediaSession(item);
@@ -241,7 +241,7 @@ async function playSpotify(uri) {
         if (player.pendingPlay) { player.pendingPlay = false; player.spotify.play(); }
         setTimeout(() => {
           if (player.source === "spotify" && player.paused && !player.position) {
-            showHint("Press play in the Spotify player.");
+            showHint("Press play in the Spotify player below.");
             openFull(true);
           }
         }, 2000);
@@ -504,7 +504,14 @@ function renderPlayer() {
   $("pl-title").textContent = item.title;
   $("pf-title").textContent = item.title;
   $("pl-artist").textContent = item.artist;
-  $("pf-artist").innerHTML = `${esc(item.artist)} · <a href="#/song/${item.id}">Song details</a>`;
+  $("pl-album").hidden = !item.album;
+  if (item.album) {  // the release the song is on: a link next to the title
+    $("pl-album").href = `#/release/${item.album.id}`;
+    $("pl-album").textContent = item.album.title;
+    $("pl-album").title = `Open ${item.album.title}`;
+  }
+  $("pf-artist").innerHTML = `${esc(item.artist)}${item.album ? ` · <a href="#/release/${item.album.id}">${esc(item.album.title)}</a>` : ""}
+    · <a href="#/song/${item.id}">Song details</a>`;
   for (const el of document.querySelectorAll("[data-pl-source]")) {
     el.textContent = `via ${SOURCE_NAMES[player.source] || ""}${player.source === "spotify" ? " (preview unless signed in)" : ""}`;
   }
@@ -584,6 +591,7 @@ for (const el of document.querySelectorAll(".pl-vol")) {
   el.addEventListener("change", savePlayer);
 }
 $("pl-expand").addEventListener("click", () => openFull(true));
+$("pl-title").addEventListener("click", () => openFull(true));
 $("player").addEventListener("click", (event) => { if (event.target === $("player")) openFull(true); });
 $("pl-queue-open").addEventListener("click", () => { setSide("queue"); openFull(true); });
 $("pl-lyrics-open").addEventListener("click", () => { setSide("lyrics"); openFull(true); });
@@ -619,8 +627,9 @@ function itemsFor(button) {
     const release = state.release;
     const cover = `covers/${release.cover_file || "artist.jpg"}`;
     const tracks = release.tracks.filter((t) => playable(t.play));
+    const album = { id: release.id, title: release.title };
     const items = tracks.map((t) => ({ id: t.recording_id, v: t.version_id, title: t.title, artist: t.artist || "Lil Wayne",
-                                       cover, ...t.play }));
+                                       cover, album, ...t.play }));
     const start = playRelease === "" ? 0 : tracks.findIndex((t) => String(t.version_id) === playRelease);
     return { items, index: Math.max(0, start) };
   }
@@ -628,7 +637,11 @@ function itemsFor(button) {
     const song = state.song;
     const version = song.versions.find((v) => String(v.id) === playVersion);
     const listed = state.songs.find((s) => s.id === song.id) || {};
-    return { items: [{ id: song.id, v: version.id, title: version.version_type === "album" ? song.title
+    // the album version: the song's album (albums before singles, as in the song list); other versions: their own release
+    const on = version.tracks.find((t) => t.discography === "official") || version.tracks[0];
+    const album = version.version_type === "album" && listed.album ? listed.album
+      : on ? { id: on.release_id, title: on.release } : listed.album;
+    return { items: [{ id: song.id, v: version.id, album, title: version.version_type === "album" ? song.title
       : `${song.title} (${version.version_name || VERSION_TYPES[version.version_type] || "version"})`,
       artist: song.artist, cover: song.cover_file ? `covers/${song.cover_file}` : coverUrl(listed), ...version.play }], index: 0 };
   }
