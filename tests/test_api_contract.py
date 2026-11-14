@@ -1,6 +1,6 @@
 """Contract of the local web API (stage 0 of the architecture migration).
 
-Every route of tracker_server.ROUTES is called on a small fixture database and
+Every route of api_routes.ROUTES is called on a small fixture database and
 the *shape* of its answer (keys and value types, recursively; list items
 merged) is compared with tests/api_contract.json.  Later refactorings
 (api_routes.py, audio_providers.py, /api/v1) must keep these shapes.
@@ -33,6 +33,8 @@ import database
 import genius_details
 import lyrics_source
 import review_queue
+import api_routes
+import tracker_data
 import tracker_server
 
 SNAPSHOT = TESTS_DIR / "api_contract.json"
@@ -182,6 +184,19 @@ class ApiContractTests(unittest.TestCase):
             f"/api/lyrics/{ids['album']}": "/api/lyrics/<version id>", "/api/review": None,
         }
 
+    def v1_paths(self):
+        """{/api/v1 path: the old /api path it must answer exactly like}."""
+        ids = self.ids
+        return {
+            "/api/v1/summary": "/api/summary", "/api/v1/songs": "/api/songs",
+            f"/api/v1/songs/{ids['song']}": f"/api/song/{ids['song']}", "/api/v1/releases/": "/api/releases",
+            "/api/v1/releases/1": "/api/release/1", "/api/v1/artists": "/api/people",
+            f"/api/v1/artists/{ids['producer']}": f"/api/artist/{ids['producer']}", "/api/v1/eras/1": "/api/era/1",
+            "/api/v1/stats": "/api/stats", "/api/v1/profile": "/api/profile", "/api/v1/timeline": "/api/timeline",
+            "/api/v1/on-this-day/06-10": "/api/on-this-day/06-10",
+            f"/api/v1/lyrics/{ids['album']}": f"/api/lyrics/{ids['album']}", "/api/v1/review": "/api/review",
+        }
+
     def current_contract(self):
         contract = {}
         for path, name in self.json_paths().items():
@@ -191,6 +206,8 @@ class ApiContractTests(unittest.TestCase):
         status, _headers, body = self.request("/api/review", json.dumps(decision).encode(),
                                               {"Content-Type": "application/json", "Origin": self.base})
         contract["POST /api/review"] = shape(json.loads(body))
+        contract["GET /api/v1/"] = shape(self.get_json("/api/v1/"))
+        contract["GET /api/v1/eras"] = shape(self.get_json("/api/v1/eras"))
         status, headers, body = self.request(f"/api/audio/{self.ids['file']}", headers={"Range": "bytes=0-99"})
         contract["GET /api/audio/<file id> (Range)"] = {
             "status": status, "Content-Type": headers["Content-Type"], "Accept-Ranges": headers["Accept-Ranges"],
@@ -198,9 +215,39 @@ class ApiContractTests(unittest.TestCase):
         return contract
 
     def test_every_route_is_covered(self):
-        paths = list(self.json_paths())
-        for pattern, _handler in tracker_server.ROUTES:
-            self.assertTrue(any(pattern.match(path) for path in paths), f"no contract for {pattern.pattern}")
+        paths = list(self.json_paths()) + list(self.v1_paths()) + [
+            "/api/v1/", "/api/v1", "/api/v1/eras", f"/api/audio/{self.ids['file']}", f"/api/v1/stream/{self.ids['file']}"]
+        for route in api_routes.ROUTES:
+            for pattern in route.patterns:
+                self.assertTrue(any(pattern.match(path) for path in paths), f"no contract for {pattern.pattern}")
+
+    def test_v1_answers_like_the_old_paths(self):
+        for new, old in self.v1_paths().items():
+            with self.subTest(new):
+                self.assertEqual(self.get_json(new), self.get_json(old))
+        new = self.request(f"/api/v1/stream/{self.ids['file']}", headers={"Range": "bytes=0-99"})
+        old = self.request(f"/api/audio/{self.ids['file']}", headers={"Range": "bytes=0-99"})
+        self.assertEqual((new[0], new[2], new[1]["Content-Range"]), (old[0], old[2], old[1]["Content-Range"]))
+
+    def test_overview(self):
+        overview = self.get_json("/api/v1")
+        self.assertEqual((overview["version"], overview["mode"]), ("1", "local"))
+        self.assertEqual(overview["features"], {"stream": True, "lyrics": True, "review": True})
+        self.assertEqual({e["name"] for e in overview["endpoints"]}, set(api_routes.BY_NAME))
+        connection = tracker_data.connect(self.path)
+        try:
+            static = api_routes.overview(connection, {"mode": "static"})
+        finally:
+            connection.close()
+        self.assertEqual(static["features"], {"stream": False, "lyrics": False, "review": False})
+        self.assertFalse(any(e["local_only"] for e in static["endpoints"]))
+
+    def test_post_review_on_v1(self):
+        items = self.get_json("/api/v1/review")
+        with self.assertRaises(urllib.error.HTTPError) as error:  # same checks as the old path
+            self.request("/api/v1/review", b"{}", {"Content-Type": "text/plain"})
+        self.assertEqual(error.exception.code, 415)
+        self.assertIsInstance(items, list)
 
     def test_contract(self):
         contract = self.current_contract()

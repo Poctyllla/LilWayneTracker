@@ -17,6 +17,7 @@ import json
 import shutil
 from pathlib import Path
 
+import api_routes
 import audio_providers
 import tracker_data
 import tracker_server
@@ -55,33 +56,20 @@ def export(out, connection):
     index = (out / "index.html").read_text(encoding="utf-8")
     (out / "index.html").write_text(index.replace('<script src="app.js">', '<script src="static.js"></script>\n<script src="app.js">'),
                                     encoding="utf-8")
-    summary = tracker_data.summary(connection)
-    summary["counts"]["files"] = 0
-    write(out, "summary", summary)
-    songs = tracker_data.songs(connection)
-    write(out, "songs", songs)
-    write(out, "releases", tracker_data.releases(connection))
-    people = tracker_data.people(connection, limit=300)
-    write(out, "people", people)
-    write(out, "stats", tracker_data.stats(connection))
-    write(out, "timeline", tracker_data.timeline(connection))
-    profile = tracker_server.artist_profile()
-    if profile:
-        write(out, "profile", profile)
-    for song in songs:
-        write(out, f"song/{song['id']}", tracker_data.song(connection, song["id"]))
-    for release in tracker_data.releases(connection):
-        write(out, f"release/{release['id']}", tracker_data.release(connection, release["id"]))
-    for era in summary["eras"]:
-        write(out, f"era/{era['id']}", tracker_data.era(connection, era["id"]))
-    artist_ids = {row[0] for row in connection.execute("SELECT DISTINCT artist_id FROM credits")}
-    artist_ids |= {row[0] for row in connection.execute("SELECT DISTINCT artist_id FROM recordings")}
-    for artist_id in sorted(artist_ids):
-        write(out, f"artist/{artist_id}", tracker_data.artist(connection, artist_id))
-    for month in range(1, 13):
-        for day in range(1, 32):
-            write(out, f"on-this-day/{month:02d}-{day:02d}", tracker_data.on_this_day(connection, f"{month:02d}-{day:02d}"))
-    return len(songs), len(artist_ids)
+    # Every public route of api_routes.py, once per id; local-only routes (the owner's
+    # files, lyrics, review) are never written.  "files" counts become 0 in write().
+    context = {"mode": "static", "profile": tracker_server.artist_profile, "decisions": lambda: None}
+    written = {}
+    for route in api_routes.ROUTES:
+        if route.local_only or route.kind != "json":
+            continue
+        values = route.items(connection) if route.param else [None]
+        for value in values:
+            data = route.handler(connection, value, context)
+            if data is not None:
+                write(out, route.file_name(value), data)
+                written[route.name] = written.get(route.name, 0) + 1
+    return written.get("song", 0), written.get("artist", 0)
 
 
 def main(argv=None):

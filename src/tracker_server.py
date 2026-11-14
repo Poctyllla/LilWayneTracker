@@ -4,7 +4,8 @@
 then open http://127.0.0.1:8765 in the browser.
 
 The server binds to 127.0.0.1 only and opens SQLite read-only.  It serves
-the page in web/ and a small JSON API:
+the page in web/ and the JSON API of api_routes.py: /api/v1/... (GET
+/api/v1/ lists the endpoints) and the old /api/... paths below as aliases:
     /api/summary          totals, statuses, eras
     /api/songs            all songs (compact)
     /api/song/<id>        one song: versions, releases, credits, sources
@@ -27,39 +28,21 @@ the page in web/ and a small JSON API:
 import argparse
 import json
 import mimetypes
-import re
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import api_routes
 import audio_providers
 import audio_stream
 import genius_details
-import lyrics_source
 import review_queue
 import tracker_data
 
 
 WEB_FOLDER = Path(__file__).resolve().parent.parent / "web"
-ROUTES = (
-    (re.compile(r"^/api/summary$"), lambda c, m: tracker_data.summary(c)),
-    (re.compile(r"^/api/songs$"), lambda c, m: tracker_data.songs(c)),
-    (re.compile(r"^/api/song/(\d+)$"), lambda c, m: tracker_data.song(c, int(m.group(1)))),
-    (re.compile(r"^/api/releases$"), lambda c, m: tracker_data.releases(c)),
-    (re.compile(r"^/api/release/(\d+)$"), lambda c, m: tracker_data.release(c, int(m.group(1)))),
-    (re.compile(r"^/api/artist/(\d+)$"), lambda c, m: tracker_data.artist(c, int(m.group(1)))),
-    (re.compile(r"^/api/people$"), lambda c, m: tracker_data.people(c)),
-    (re.compile(r"^/api/era/(\d+)$"), lambda c, m: tracker_data.era(c, int(m.group(1)))),
-    (re.compile(r"^/api/stats$"), lambda c, m: tracker_data.stats(c)),
-    (re.compile(r"^/api/profile$"), lambda c, m: artist_profile()),
-    (re.compile(r"^/api/timeline$"), lambda c, m: tracker_data.timeline(c)),
-    (re.compile(r"^/api/on-this-day/(\d\d-\d\d)$"), lambda c, m: tracker_data.on_this_day(c, m.group(1))),
-    (re.compile(r"^/api/lyrics/(\d+)$"), lambda c, m: lyrics_source.lookup(c, int(m.group(1)))),
-    (re.compile(r"^/api/review$"), lambda c, m: review_queue.review_items(
-        c, genius_details.load_cache(), review_queue.load_decisions(decisions_file()))),
-)
-AUDIO_ROUTE = re.compile(r"^/api/audio/(\d+)$")
+ROUTES = api_routes.ROUTES  # the one route list (api_routes.py)
 MAX_BODY = 10_000
 WRITE_LOCK = threading.Lock()
 
@@ -82,9 +65,6 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?", 1)[0]
-        match = AUDIO_ROUTE.match(path)
-        if match:
-            return self.audio(int(match.group(1)))
         if path.startswith("/api/"):
             return self.api(path)
         return self.static(path)
@@ -92,7 +72,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         """The only write: a review decision appended to data/song_review_decisions.json
         (never SQLite).  Same-origin JSON only."""
-        if self.path.split("?", 1)[0] != "/api/review":
+        route, _value = api_routes.find(self.path.split("?", 1)[0])
+        if route is not api_routes.BY_NAME["review"]:
             return self.send(404, b'{"error": "unknown endpoint"}', "application/json")
         origin = self.headers.get("Origin")
         host = self.headers.get("Host", "")
@@ -118,18 +99,20 @@ class Handler(BaseHTTPRequestHandler):
         return self.send(200, json.dumps(stored, ensure_ascii=False).encode("utf-8"), "application/json")
 
     def api(self, path):
-        for pattern, handler in ROUTES:
-            match = pattern.match(path)
-            if match:
-                connection = tracker_data.connect(self.database_path)
-                try:
-                    data = handler(connection, match)
-                finally:
-                    connection.close()
-                if data is None:
-                    return self.send(404, b'{"error": "not found"}', "application/json")
-                return self.send(200, json.dumps(data, ensure_ascii=False).encode("utf-8"), "application/json")
-        return self.send(404, b'{"error": "unknown endpoint"}', "application/json")
+        route, value = api_routes.find(path)
+        if route is None:
+            return self.send(404, b'{"error": "unknown endpoint"}', "application/json")
+        if route.kind == "audio":
+            return self.audio(value)
+        context = {"mode": "local", "profile": artist_profile, "decisions": decisions_file}
+        connection = tracker_data.connect(self.database_path)
+        try:
+            data = route.handler(connection, value, context)
+        finally:
+            connection.close()
+        if data is None:
+            return self.send(404, b'{"error": "not found"}', "application/json")
+        return self.send(200, json.dumps(data, ensure_ascii=False).encode("utf-8"), "application/json")
 
     def audio(self, file_id):
         connection = tracker_data.connect(self.database_path)

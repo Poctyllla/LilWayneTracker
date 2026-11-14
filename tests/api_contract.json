@@ -390,6 +390,44 @@
    "year": "str"
   }
  ],
+ "GET /api/v1/": {
+  "counts": {
+   "credits": "int",
+   "files": "int",
+   "guest_songs": "int",
+   "releases": "int",
+   "songs": "int",
+   "versions": "int"
+  },
+  "endpoints": [
+   {
+    "local_only": "bool",
+    "name": "str",
+    "path": "str"
+   }
+  ],
+  "features": {
+   "lyrics": "bool",
+   "review": "bool",
+   "stream": "bool"
+  },
+  "mode": "str",
+  "name": "str",
+  "version": "str"
+ },
+ "GET /api/v1/eras": [
+  {
+   "cover_file": "str",
+   "end_date": "str",
+   "guest_songs": "null",
+   "id": "int",
+   "name": "str",
+   "songs": "int",
+   "start_date": "str",
+   "summary": "str",
+   "summary_url": "str"
+  }
+ ],
  "POST /api/review": {
   "action": "str",
   "decided": "str",
