@@ -163,6 +163,24 @@ class FirstEditionTests(unittest.TestCase):
         self.assertEqual(firsts, {1: "2018-09-28", 4: "2013-07-23", 7: "2007"})
 
 
+class SingleEraTests(unittest.TestCase):
+    """A single from a solo studio album belongs to that album's era (Mrs. Officer -> Tha Carter III)."""
+
+    def test_single_album_eras(self):
+        connection = sqlite3.connect(":memory:")
+        connection.executescript("""
+            CREATE TABLE releases (id INTEGER PRIMARY KEY, release_type TEXT);
+            CREATE TABLE recordings (id INTEGER PRIMARY KEY, era_id INTEGER, era_source TEXT);
+            CREATE TABLE versions (id INTEGER PRIMARY KEY, recording_id INTEGER);
+            CREATE TABLE release_tracks (id INTEGER PRIMARY KEY, release_id INTEGER, version_id INTEGER);
+            INSERT INTO releases VALUES (1, 'single'), (2, 'single'), (3, 'studio_album');
+            INSERT INTO recordings VALUES (10, 6, 'album'), (11, 7, 'date');
+            INSERT INTO versions VALUES (100, 10), (101, 11);
+            INSERT INTO release_tracks (release_id, version_id) VALUES (1, 100), (2, 101), (3, 100);
+        """)
+        self.assertEqual(tracker_data.single_album_eras(connection), {1: 6})  # 2: no album song; 3: not a single
+
+
 class PlayerTests(unittest.TestCase):
     """Player data and the local audio route (owner's library, 127.0.0.1 only)."""
 

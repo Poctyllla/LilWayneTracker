@@ -329,6 +329,25 @@ def first_editions(connection, cover="NULL AS cover_file"):
     return sorted(firsts, key=lambda r: (r["release_date"], r["id"]))
 
 
+SINGLE_TYPES = ("single", "group_single")
+
+
+def single_album_eras(connection):
+    """{release_id: era_id} of singles whose songs are on a solo studio album
+    (recordings.era_source = 'album'): the era of that album (the most common one
+    when a single carries songs of several albums)."""
+    marks = ",".join("?" * len(SINGLE_TYPES))
+    counts = {}
+    for release_id, era_id, n in connection.execute(f"""
+            SELECT rt.release_id, rec.era_id, count(*) FROM release_tracks rt
+            JOIN releases r ON r.id = rt.release_id JOIN versions v ON v.id = rt.version_id
+            JOIN recordings rec ON rec.id = v.recording_id
+            WHERE r.release_type IN ({marks}) AND rec.era_source = 'album' AND rec.era_id IS NOT NULL
+            GROUP BY 1, 2""", SINGLE_TYPES):
+        counts.setdefault(release_id, []).append((n, -era_id, era_id))
+    return {release_id: max(items)[2] for release_id, items in counts.items()}
+
+
 def era(connection, era_id):
     """One era: its text and cover, the official releases of its period, its songs
     (own and guest) and its most credited producers and featured artists."""
@@ -339,9 +358,12 @@ def era(connection, era_id):
     start, end = result.get("start_date") or "0000", result.get("end_date") or "9999"
     cover = "cover_file" if has_column(connection, "releases", "cover_file") else "NULL AS cover_file"
     # One entry per release group, in the era of its first edition (later editions,
-    # deluxe versions and reissues do not move an album into a later era).
+    # deluxe versions and reissues do not move an album into a later era); a single
+    # from a solo studio album belongs to that album's era even when it came out later.
+    from_album = single_album_eras(connection)
     result["releases"] = [release for release in first_editions(connection, cover)
-                          if start <= release["release_date"][:10] <= end]
+                          if (from_album[release["id"]] == era_id if release["id"] in from_album
+                              else start <= release["release_date"][:10] <= end)]
     result["songs"] = [dict(row) for row in connection.execute("""
         SELECT r.id, r.title, a.name AS artist, r.appearance = 'guest' AS guest, av.availability AS status
         FROM recordings r JOIN artists a ON a.id = r.artist_id JOIN recording_availability av ON av.recording_id = r.id
