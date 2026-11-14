@@ -1,0 +1,399 @@
+{
+ "GET /api/artist/<id>": {
+  "id": "int",
+  "name": "str",
+  "roles": {
+   "producer": "int"
+  },
+  "songs": [
+   {
+    "artist": "str",
+    "era": "str",
+    "guest": "bool",
+    "id": "int",
+    "roles": [
+     "str"
+    ],
+    "status": "str",
+    "title": "str"
+   }
+  ]
+ },
+ "GET /api/audio/<file id> (Range)": {
+  "Accept-Ranges": "bytes",
+  "Content-Range": "bytes 0-99/1024",
+  "Content-Type": "audio/mpeg",
+  "length": 100,
+  "status": 206
+ },
+ "GET /api/era/<id>": {
+  "cover_file": "str",
+  "description": "null",
+  "end_date": "str",
+  "featured": [
+   {
+    "id": "int",
+    "name": "str",
+    "songs": "int"
+   }
+  ],
+  "id": "int",
+  "musicbrainz_release_group_id": "null",
+  "name": "str",
+  "producers": [
+   {
+    "id": "int",
+    "name": "str",
+    "songs": "int"
+   }
+  ],
+  "releases": [
+   {
+    "cover_file": "str",
+    "id": "int",
+    "release_date": "str",
+    "release_type": "str",
+    "title": "str"
+   }
+  ],
+  "songs": [
+   {
+    "artist": "str",
+    "guest": "null",
+    "id": "int",
+    "status": "str",
+    "title": "str"
+   }
+  ],
+  "start_date": "str",
+  "summary": "str",
+  "summary_url": "str"
+ },
+ "GET /api/lyrics/<version id>": {
+  "plain": "str",
+  "source": "str",
+  "synced": [
+   [
+    "float|str"
+   ]
+  ],
+  "url": "str"
+ },
+ "GET /api/on-this-day/<MM-DD>": [
+  {
+   "cover_file": "str",
+   "discography": "str",
+   "id": "int",
+   "release_date": "str",
+   "release_type": "str",
+   "title": "str"
+  }
+ ],
+ "GET /api/people": [
+  {
+   "id": "int",
+   "name": "str",
+   "roles": [
+    "str"
+   ],
+   "songs": "int",
+   "years": [
+    "str"
+   ]
+  }
+ ],
+ "GET /api/profile": {
+  "image": {
+   "credit": "str",
+   "file": "str"
+  },
+  "links": [
+   {
+    "group": "str",
+    "service": "str",
+    "url": "str"
+   }
+  ],
+  "name": "str",
+  "summary": "str",
+  "summary_url": "str"
+ },
+ "GET /api/release/<id>": {
+  "artist_id": "int",
+  "cover_file": "str",
+  "description": "null",
+  "discography": "str",
+  "id": "int",
+  "label": "str",
+  "listen": [
+   {
+    "service": "str",
+    "url": "str"
+   }
+  ],
+  "musicbrainz_release_group_id": "null",
+  "musicbrainz_release_id": "str",
+  "release_date": "str",
+  "release_type": "str",
+  "title": "str",
+  "tracks": [
+   {
+    "disc_number": "int",
+    "duration_ms": "int",
+    "file": "int",
+    "play": {
+     "apple": "str",
+     "file_id": "int",
+     "spotify": "str"
+    },
+    "recording_id": "int",
+    "title": "str",
+    "track_number": "int",
+    "version_id": "int",
+    "version_name": "str",
+    "version_type": "str"
+   }
+  ]
+ },
+ "GET /api/releases": [
+  {
+   "cover_file": "null|str",
+   "discography": "str",
+   "id": "int",
+   "release_date": "str",
+   "release_type": "str",
+   "title": "str",
+   "tracks": "int"
+  }
+ ],
+ "GET /api/review": [
+  {
+   "candidates": [],
+   "early_releases": [
+    "int"
+   ],
+   "key": "str",
+   "kind": "str",
+   "recording": {
+    "artist": "str",
+    "artists": [
+     "str"
+    ],
+    "id": "int",
+    "status": "str",
+    "title": "str",
+    "tracks": [
+     {
+      "date": "str",
+      "discography": "str",
+      "duration_ms": "int",
+      "release": "str",
+      "type": "str"
+     }
+    ]
+   },
+   "title": "str",
+   "tracks": [
+    {
+     "date": "str",
+     "discography": "str",
+     "duration_ms": "int",
+     "release": "str",
+     "release_id": "int",
+     "track_title": "null|str"
+    }
+   ]
+  }
+ ],
+ "GET /api/song/<id>": {
+  "aliases": [
+   "str"
+  ],
+  "appearance": "null",
+  "artist": "str",
+  "artist_id": "int",
+  "availability": "str",
+  "cover_file": "str",
+  "credits": {
+   "featured_artist": [
+    {
+     "id": "int",
+     "name": "str",
+     "source": "str",
+     "version": "str"
+    }
+   ],
+   "producer": [
+    {
+     "id": "int",
+     "name": "str",
+     "source": "str",
+     "version": "null"
+    }
+   ]
+  },
+  "era": "str",
+  "era_source": "null",
+  "genius_song_id": "int",
+  "id": "int",
+  "leak_date": "null",
+  "listen": [
+   {
+    "service": "str",
+    "url": "str"
+   }
+  ],
+  "musicbrainz_alternates": [],
+  "musicbrainz_recording_id": "null",
+  "recording_date": "null",
+  "sources": [
+   {
+    "name": "str",
+    "notes": "null",
+    "url": "str"
+   }
+  ],
+  "title": "str",
+  "versions": [
+   {
+    "availability": "str",
+    "files": "int",
+    "first_known_date": "null|str",
+    "genius_song_id": "null",
+    "id": "int",
+    "links": [
+     "{\"service\": \"str\", \"url\": \"str\"}|null"
+    ],
+    "musicbrainz_recording_id": "null",
+    "play": "{\"apple\": \"str\", \"file_id\": \"int\", \"spotify\": \"str\"}|\"null\"",
+    "tracks": [
+     "{\"cover_file\": \"null|str\", \"disc_number\": \"int\", \"discography\": \"str\", \"duration_ms\": \"int\", \"release\": \"str\", \"release_date\": \"str\", \"release_id\": \"int\", \"release_type\": \"str\", \"track_number\": \"int\", \"track_title\": \"null|str\"}|null"
+    ],
+    "version_name": "str",
+    "version_type": "str"
+   }
+  ]
+ },
+ "GET /api/songs": [
+  {
+   "album": "{\"id\": \"int\", \"title\": \"str\"}|\"null\"",
+   "aliases": [
+    "\"str\"|null"
+   ],
+   "artist": "str",
+   "cover": "null|str",
+   "date": "null|str",
+   "era": "int|null",
+   "file": "bool",
+   "guest": "bool",
+   "id": "int",
+   "play": "{\"apple\": \"str\", \"file_id\": \"int\", \"spotify\": \"str\", \"v\": \"int\"}|\"null\"",
+   "producers": [
+    "\"str\"|null"
+   ],
+   "releases": "int",
+   "status": "str",
+   "title": "str",
+   "types": [
+    "\"str\"|null"
+   ],
+   "versions": "int"
+  }
+ ],
+ "GET /api/stats": {
+  "by_era": [
+   {
+    "end_date": "str",
+    "guest": "int",
+    "id": "int",
+    "leaked": "int",
+    "name": "str",
+    "released": "int",
+    "unreleased": "int"
+   }
+  ],
+  "by_year": [
+   {
+    "leaked": "int",
+    "released": "int",
+    "year": "str"
+   }
+  ],
+  "featured": [
+   {
+    "id": "int",
+    "name": "str",
+    "songs": "int"
+   }
+  ],
+  "producers": [
+   {
+    "id": "int",
+    "name": "str",
+    "songs": "int"
+   }
+  ],
+  "versions": {
+   "demo": "int"
+  },
+  "writers": []
+ },
+ "GET /api/summary": {
+  "counts": {
+   "credits": "int",
+   "files": "int",
+   "guest_songs": "int",
+   "releases": "int",
+   "songs": "int",
+   "versions": "int"
+  },
+  "eras": [
+   {
+    "cover_file": "str",
+    "end_date": "str",
+    "guest_songs": "null",
+    "id": "int",
+    "name": "str",
+    "songs": "int",
+    "start_date": "str",
+    "summary": "str",
+    "summary_url": "str"
+   }
+  ],
+  "status": {
+   "released": "int"
+  }
+ },
+ "GET /api/timeline": [
+  {
+   "bootleg_list": [
+    "{\"cover_file\": \"null\", \"date\": \"str\", \"id\": \"int\", \"title\": \"str\"}|null"
+   ],
+   "bootlegs": "int",
+   "eras": [
+    {
+     "date": "str",
+     "id": "int",
+     "name": "str"
+    }
+   ],
+   "first_known": "int",
+   "releases": [
+    {
+     "cover_file": "str",
+     "date": "str",
+     "id": "int",
+     "title": "str",
+     "type": "str"
+    }
+   ],
+   "year": "str"
+  }
+ ],
+ "POST /api/review": {
+  "action": "str",
+  "decided": "str",
+  "key": "str",
+  "note": "str"
+ }
+}
