@@ -50,6 +50,7 @@
   "releases": [
    {
     "cover_file": "str",
+    "editions": "int",
     "id": "int",
     "release_date": "str",
     "release_type": "str",
@@ -119,6 +120,7 @@
   "summary_url": "str"
  },
  "GET /api/release/<id>": {
+  "artist_credit": "null",
   "artist_id": "int",
   "cover_file": "str",
   "description": "null",
@@ -159,6 +161,7 @@
  },
  "GET /api/releases": [
   {
+   "artist_credit": "null",
    "cover_file": "null|str",
    "discography": "str",
    "edition": "null",
@@ -218,6 +221,7 @@
   "artist_id": "int",
   "availability": "str",
   "cover_file": "str",
+  "credit": "null",
   "credits": {
    "featured_artist": [
     {
@@ -286,6 +290,7 @@
    ],
    "artist": "str",
    "cover": "null|str",
+   "credit": "null",
    "date": "null|str",
    "era": "int|null",
    "file": "bool",
@@ -386,6 +391,7 @@
     {
      "cover_file": "str",
      "date": "str",
+     "editions": "int",
      "id": "int",
      "title": "str",
      "type": "str"

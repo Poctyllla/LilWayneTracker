@@ -71,7 +71,7 @@ function coverUrl(song) {
 
 // Queue items: {qid, id (song), v (version), title, artist, cover, spotify, apple, file_id}.
 function songItem(song) {
-  return { id: song.id, title: song.title, artist: song.artist, cover: coverUrl(song), album: song.album, ...song.play };
+  return { id: song.id, title: song.title, artist: song.credit || song.artist, cover: coverUrl(song), album: song.album, ...song.play };
 }
 
 // "▶ Listen" and "+" (add to queue) for an item that can be played; nothing otherwise.
@@ -302,6 +302,11 @@ function seek(seconds) {
 
 function applyVolume() {
   audio.volume = player.muted ? 0 : player.volume / 100;
+  const shown = player.muted ? 0 : player.volume;
+  for (const tip of document.querySelectorAll(".pl-vol-tip")) {
+    tip.textContent = shown;  // the level while dragging, without "%"
+    tip.style.left = `${shown}%`;
+  }
   const level = icon(player.muted || !player.volume ? "volOff" : player.volume < 50 ? "volDown" : "volUp");
   const own = player.source === "file" || !player.source;
   for (const el of document.querySelectorAll('[data-pl="mute"]')) { el.innerHTML = level; el.disabled = !own; }
@@ -575,7 +580,12 @@ function mediaSession(item) {
 /* ---------- wiring ---------- */
 
 const ACTIONS = { prev: previous, toggle, next, shuffle: () => setShuffle(!player.shuffle), repeat: cycleRepeat,
-                  mute: () => { player.muted = !player.muted; savePlayer(); applyVolume(); } };
+                  mute: () => {  // silence, and back to the same level
+    player.muted = !player.muted;
+    if (!player.muted && !player.volume) player.volume = 50;
+    savePlayer();
+    applyVolume();
+  } };
 for (const el of document.querySelectorAll("[data-pl]")) {
   el.addEventListener("click", (event) => { event.stopPropagation(); ACTIONS[el.dataset.pl](); });
 }
@@ -583,16 +593,33 @@ for (const el of document.querySelectorAll(".pl-seek")) {
   el.addEventListener("change", () => { if (player.duration) seek(player.duration * el.value / 1000); });
 }
 for (const el of document.querySelectorAll(".pl-vol")) {
+  const wrap = el.closest(".pl-vol-wrap");
   el.addEventListener("input", () => {
-    player.volume = Number(el.value);
-    player.muted = player.volume === 0;
+    const value = Number(el.value);
+    if (value > 0) { player.volume = value; player.muted = false; }  // 0 = muted; the last level is kept
+    else player.muted = true;
+    wrap.classList.add("dragging");
     applyVolume();
   });
-  el.addEventListener("change", savePlayer);
+  el.addEventListener("change", () => { savePlayer(); setTimeout(() => wrap.classList.remove("dragging"), 600); });
+  el.addEventListener("pointerdown", () => wrap.classList.add("dragging"));
+  el.addEventListener("pointerup", () => setTimeout(() => wrap.classList.remove("dragging"), 600));
+}
+// The Spotify / Apple embeds have no volume control a page could use: say so instead of doing nothing.
+for (const wrap of document.querySelectorAll(".pl-volume")) {
+  wrap.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (player.source && player.source !== "file") {
+      flash(`${SOURCE_NAMES[player.source]} does not let websites change its volume: use the volume of your device`);
+    }
+  });
 }
 $("pl-expand").addEventListener("click", () => openFull(true));
 $("pl-title").addEventListener("click", () => openFull(true));
-$("player").addEventListener("click", (event) => { if (event.target === $("player")) openFull(true); });
+// A click anywhere on the bar opens the player (not on its buttons, links and sliders).
+$("player").addEventListener("click", (event) => {
+  if (!event.target.closest("button, a, input, .pl-volume")) openFull(true);
+});
 $("pl-queue-open").addEventListener("click", () => { setSide("queue"); openFull(true); });
 $("pl-lyrics-open").addEventListener("click", () => { setSide("lyrics"); openFull(true); });
 $("pl-stop").addEventListener("click", closePlayer);
@@ -628,7 +655,7 @@ function itemsFor(button) {
     const cover = `covers/${release.cover_file || "artist.jpg"}`;
     const tracks = release.tracks.filter((t) => playable(t.play));
     const album = { id: release.id, title: release.title };
-    const items = tracks.map((t) => ({ id: t.recording_id, v: t.version_id, title: t.title, artist: t.artist || "Lil Wayne",
+    const items = tracks.map((t) => ({ id: t.recording_id, v: t.version_id, title: t.title, artist: release.artist_credit || "Lil Wayne",
                                        cover, album, ...t.play }));
     const start = playRelease === "" ? 0 : tracks.findIndex((t) => String(t.version_id) === playRelease);
     return { items, index: Math.max(0, start) };
@@ -643,7 +670,7 @@ function itemsFor(button) {
       : on ? { id: on.release_id, title: on.release } : listed.album;
     return { items: [{ id: song.id, v: version.id, album, title: version.version_type === "album" ? song.title
       : `${song.title} (${version.version_name || VERSION_TYPES[version.version_type] || "version"})`,
-      artist: song.artist, cover: song.cover_file ? `covers/${song.cover_file}` : coverUrl(listed), ...version.play }], index: 0 };
+      artist: song.credit || song.artist, cover: song.cover_file ? `covers/${song.cover_file}` : coverUrl(listed), ...version.play }], index: 0 };
   }
   return { items: [], index: 0 };
 }

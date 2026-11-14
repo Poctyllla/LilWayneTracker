@@ -116,6 +116,7 @@ def save_cache(cache, path=CACHE_PATH):
 
 
 SIMILAR = 0.6  # title similarity for a same-position track inside an accepted album
+SAME_LENGTH_MS = 1000  # same position and length within 1 s: the same track under another title
 NOTES = re.compile(r"\s*[(\[][^)\]]*[)\]]")  # "(Lil Wayne solo)", "(feat. X)", "[Explicit]"
 # store suffixes: " - Album Version (Edited)", " - Radio Edit", " - Main Clean", " - Street", " - 2008 Remaster"
 SUFFIX = re.compile(r"\s+-\s+[^-]*\b(?:version|edit|edited|explicit|clean|main|street|remaster(?:ed)?)\b[^-]*$",
@@ -132,6 +133,15 @@ def bare(title):
     return letters(NOTES.sub("", SUFFIX.sub("", str(title or ""))))
 
 
+def shared_word(a, b):
+    """At least one real word in common (not "the", "a", generic words): a same-length
+    track with a wholly different title is another song ("Earthquake" vs "Shine")."""
+    def words(title):
+        return {w for w in re.findall(r"[a-z0-9]+", NOTES.sub("", str(title or "")).casefold())
+                if len(w) >= 3 and w not in ("the", "tha", "and") and w not in GENERIC_TITLE_WORDS}
+    return bool(words(a) & words(b))
+
+
 def generic(title):
     """Intro / outro / skit ...: such titles match only exactly (duplicate_guard rule)."""
     return any(word in re.findall(r"[a-z]+", str(title or "").casefold()) for word in GENERIC_TITLE_WORDS)
@@ -144,7 +154,8 @@ def similarity(a, b):
 def position_pairs(ours, theirs, pairs):
     """Tracks the title match missed, inside an album already accepted: the store's
     track at the same disc / position when the titles are similar
-    ("50 Shots Set's It Off" = "Shots Set's It Off", "Infrared Dot" = "Infared Dot")."""
+    ("50 Shots Set's It Off" = "Shots Set's It Off", "Infrared Dot" = "Infared Dot")
+    or the lengths agree within 1 s ("Sick Uncle" = "Uncle Automatic Skit")."""
     used = {id(t) for _, t in pairs}
     done = {id(o) for o, _ in pairs}
     by_position = {(t["disc"], t["number"]): t for t in theirs}
@@ -153,7 +164,12 @@ def position_pairs(ours, theirs, pairs):
         candidate = by_position.get((track["disc"], track["number"]))
         if id(track) in done or candidate is None or id(candidate) in used:
             continue
-        if generic(track["title"]) or generic(candidate["title"]):
+        same_length = (track.get("duration_ms") and candidate.get("duration_ms")
+                       and abs(track["duration_ms"] - candidate["duration_ms"]) <= SAME_LENGTH_MS
+                       and shared_word(track["title"], candidate["title"]))
+        if same_length:
+            pass  # same position and the same length: the store's name for it ("Sick Uncle" = "Uncle Automatic Skit")
+        elif generic(track["title"]) or generic(candidate["title"]):
             if bare(track["title"]) != bare(candidate["title"]):
                 continue
         elif similarity(track["title"], candidate["title"]) < SIMILAR:

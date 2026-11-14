@@ -141,9 +141,13 @@
   <section id="eras-view" hidden>
     <div class="view-bar" id="era-view-bar">
       <span class="muted" id="era-total"></span>
-      <div class="seg" role="radiogroup" aria-label="View" id="era-views">
-        <button type="button" data-view="grid">▦ Grid</button><button type="button" data-view="list">☰ List</button>
-      </div>
+      <details class="menu" id="era-view-menu">
+        <summary class="menu-button" id="era-view-button">▦ Grid</summary>
+        <div class="menu-panel narrow" id="era-views">
+          <button data-view="grid">▦ Grid</button>
+          <button data-view="list">☰ List</button>
+        </div>
+      </details>
     </div>
     <div id="era-grid" class="era-grid"></div>
     <div id="era-detail" hidden></div>
@@ -156,13 +160,25 @@
   <section id="releases-view" hidden>
     <div class="filters">
       <input id="release-search" type="search" placeholder="Search releases…" autocomplete="off">
-      <select id="discography">
-        <option value="official">Official discography</option>
-        <option value="unofficial">Unofficial (bootlegs)</option>
-      </select>
-      <div class="seg" role="radiogroup" aria-label="View" id="release-views">
-        <button type="button" data-view="list">☰ List</button><button type="button" data-view="grid">▦ Grid</button><button type="button" data-view="compact">≡ Compact</button>
-      </div>
+      <details class="menu" id="release-filter-menu">
+        <summary class="menu-button">Filters <span id="release-filter-count"></span></summary>
+        <div class="menu-panel">
+          <div class="field"><span>Discography</span><select id="discography" data-chips>
+            <option value="official">Official</option>
+            <option value="unofficial">Unofficial (bootlegs)</option>
+          </select></div>
+          <div class="field"><span>Type</span><select id="release-type" data-chips><option value="">All types</option></select></div>
+          <button type="button" class="act ghost" id="reset-release-filters">Reset</button>
+        </div>
+      </details>
+      <details class="menu" id="release-view-menu">
+        <summary class="menu-button" id="release-view-button">☰ List</summary>
+        <div class="menu-panel narrow" id="release-views">
+          <button data-view="list">☰ List</button>
+          <button data-view="grid">▦ Grid</button>
+          <button data-view="compact">≡ Compact</button>
+        </div>
+      </details>
     </div>
     <p class="muted" id="release-total"></p>
     <div id="release-list"></div>
@@ -232,7 +248,8 @@
   </div>
   <div class="pl-right">
     <div class="pl-volume"><button class="pl-btn small" data-pl="mute" title="Mute" aria-label="Mute">🔊</button>
-      <input type="range" class="pl-vol" min="0" max="100" value="80" aria-label="Volume"></div>
+      <span class="pl-vol-wrap"><input type="range" class="pl-vol" min="0" max="100" value="80" aria-label="Volume">
+        <output class="pl-vol-tip" aria-hidden="true"></output></span></div>
     <button class="pl-btn small" id="pl-queue-open" title="Queue" aria-label="Open the queue">☰</button>
     <button class="pl-btn small" id="pl-lyrics-open" title="Lyrics" aria-label="Open the lyrics">❝</button>
     <button class="pl-btn small" id="pl-stop" title="Close the player" aria-label="Close the player">×</button>
@@ -259,7 +276,8 @@
       <button class="pl-btn mode" data-pl="repeat" title="Repeat: off" aria-label="Repeat: off">🔁</button>
     </div>
       <div class="pl-volume"><button class="pl-btn small" data-pl="mute" title="Mute" aria-label="Mute">🔊</button>
-      <input type="range" class="pl-vol" min="0" max="100" value="80" aria-label="Volume"></div>
+      <span class="pl-vol-wrap"><input type="range" class="pl-vol" min="0" max="100" value="80" aria-label="Volume">
+        <output class="pl-vol-tip" aria-hidden="true"></output></span></div>
       <div class="pf-source"><span class="pl-source" data-pl-source></span></div>
       <div class="pf-embed" id="pf-embed"><div id="pf-spotify"></div><div id="pf-apple"></div></div>
     </div>

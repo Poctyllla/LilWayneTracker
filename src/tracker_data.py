@@ -7,6 +7,7 @@ from audio_providers.py.
 
 import functools
 import json
+import re
 import sqlite3
 from pathlib import Path
 
@@ -63,6 +64,7 @@ def songs(connection):
     covers = song_covers(connection)
     play = song_play(connection)
     albums = song_albums(connection)
+    credits = release_credits(connection)
     producers = {}
     for recording_id, name in connection.execute("""
         SELECT DISTINCT COALESCE(c.recording_id, v.recording_id), a.name FROM credits c
@@ -85,6 +87,8 @@ def songs(connection):
             "releases": releases.get(row["id"], 0), "file": row["id"] in files,
             "aliases": aliases.get(row["id"], []), "producers": producers.get(row["id"], []),
             "cover": covers.get(row["id"]), "play": play.get(row["id"]), "album": albums.get(row["id"]),
+            "credit": None if row["appearance"] == "guest" or not albums.get(row["id"])
+            else credits.get(albums[row["id"]]["id"]),
         })
     return rows
 
@@ -119,6 +123,44 @@ def edition_labels(folder=PACKAGES_FOLDER):
             if release_id and parts:
                 labels[release_id] = ", ".join(parts)
     return labels
+
+
+FEATURING_SPLIT = re.compile(r"\s+(?:feat\.?|featuring|ft\.)\s+", re.IGNORECASE)
+SOLO_NAMES = ("lil wayne", "lil' wayne")
+
+
+@functools.lru_cache(maxsize=1)
+def credit_names(folder=PACKAGES_FOLDER):
+    """{MusicBrainz release ID: main artist credit} of releases not credited to Lil Wayne
+    alone ("Hot Boy$", "Birdman & Lil Wayne", "Young Money"); featured artists are cut off."""
+    names = {}
+    for path in Path(folder).glob("**/*.json"):
+        try:
+            package = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for edition in [package.get("canonical_edition") or {}] + list(package.get("additional_editions") or []):
+            release = edition.get("release") or {}
+            credit = FEATURING_SPLIT.split(str(release.get("artist_credit") or ""))[0].strip()
+            if release.get("musicbrainz_release_id") and credit and credit.casefold() not in SOLO_NAMES:
+                names[release["musicbrainz_release_id"]] = credit
+    return names
+
+
+def release_credits(connection):
+    """{release_id: main artist credit} for releases not credited to Lil Wayne alone.
+    A collaboration album is his by definition (owner's decision: ColleGrove = 2 Chainz &
+    Lil Wayne although MusicBrainz credits 2 Chainz only)."""
+    names = credit_names()
+    credits = {}
+    for release_id, mbid, kind in connection.execute(
+            "SELECT id, musicbrainz_release_id, release_type FROM releases WHERE musicbrainz_release_id IS NOT NULL"):
+        credit = names.get(mbid)
+        if credit and kind == "collaboration_album" and "lil wayne" not in credit.casefold():
+            credit = f"{credit} & Lil Wayne"
+        if credit:
+            credits[release_id] = credit
+    return credits
 
 
 def has_column(connection, table, column):
@@ -310,6 +352,8 @@ def song(connection, recording_id):
             break
     result["listen"] = [{"service": service, "url": url} for service, url in listen.items()]
     result["cover_file"] = song_covers_for(connection, recording_id)
+    album = song_albums(connection).get(recording_id) if head["appearance"] != "guest" else None
+    result["credit"] = release_credits(connection).get(album["id"]) if album else None
     return result
 
 
@@ -330,7 +374,8 @@ def first_editions(connection, cover="NULL AS cover_file"):
     firsts = []
     for releases in groups.values():
         full = [r for r in releases if len(r["release_date"]) >= 10]
-        firsts.append(min(full or releases, key=lambda r: (r["release_date"], r["id"])))
+        first = min(full or releases, key=lambda r: (r["release_date"], r["id"]))
+        firsts.append({**first, "editions": len(releases)})
     return sorted(firsts, key=lambda r: (r["release_date"], r["id"]))
 
 
@@ -425,6 +470,9 @@ def timeline(connection):
     from sources (Genius dates of demos / snippets ...)."""
     cover = "cover_file" if has_column(connection, "releases", "cover_file") else "NULL AS cover_file"
     years, seen = {}, set()
+    editions = dict(connection.execute("""
+        SELECT COALESCE(musicbrainz_release_group_id, 'release:' || id), count(*) FROM releases
+        WHERE discography = 'official' GROUP BY 1"""))
     for row in connection.execute(f"""
         SELECT id, title, release_type, release_date, discography, {cover},
                COALESCE(musicbrainz_release_group_id, 'release:' || id) AS group_key
@@ -438,7 +486,8 @@ def timeline(connection):
         elif row["group_key"] not in seen:
             seen.add(row["group_key"])
             year["releases"].append({"id": row["id"], "title": row["title"], "type": row["release_type"],
-                                     "date": row["release_date"], "cover_file": row["cover_file"]})
+                                     "date": row["release_date"], "cover_file": row["cover_file"],
+                                     "editions": editions.get(row["group_key"], 1)})
     for row in connection.execute("SELECT id, name, end_date FROM eras WHERE end_date IS NOT NULL"):
         if row["end_date"][:4] in years:
             years[row["end_date"][:4]]["eras"].append({"id": row["id"], "name": row["name"], "date": row["end_date"]})
@@ -470,6 +519,7 @@ def releases(connection):
     ("Target limited edition", "deluxe edition", ...) where the packages know it."""
     cover = "r.cover_file" if has_column(connection, "releases", "cover_file") else "NULL"
     labels = edition_labels()
+    credits = release_credits(connection)
     rows = []
     for row in connection.execute(f"""
             SELECT r.id, r.title, r.release_type, r.release_date, r.discography, {cover} AS cover_file,
@@ -479,6 +529,7 @@ def releases(connection):
             GROUP BY r.id ORDER BY r.discography, r.release_date, r.title"""):
         item = dict(row)
         item["edition"] = labels.get(item.pop("musicbrainz_release_id"))
+        item["artist_credit"] = credits.get(item["id"])
         rows.append(item)
     return rows
 
@@ -499,6 +550,7 @@ def release(connection, release_id):
         track["play"] = play.get(track["version_id"])
     result["listen"] = listen_links(connection, [release_id])
     result["edition"] = edition_labels().get(result.get("musicbrainz_release_id"))
+    result["artist_credit"] = release_credits(connection).get(release_id)
     group = result.get("musicbrainz_release_group_id")
     result["editions"] = [] if not group else [  # the other editions of this album
         {"id": row["id"], "title": row["title"], "release_date": row["release_date"], "tracks": row["tracks"],
