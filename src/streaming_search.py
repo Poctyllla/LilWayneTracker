@@ -147,7 +147,12 @@ def main(argv=None):
         for artist in ARTISTS:
             if artist not in cache[service]:
                 print(f"{service}: reading {artist} ...", flush=True)
-                cache[service][artist] = fetch(artist)
+                try:
+                    cache[service][artist] = fetch(artist)
+                except spotify_source.RateLimited as error:  # the rest of this service waits for the next run
+                    until = time.strftime("%H:%M", time.localtime(time.time() + error.seconds))
+                    print(f"{error}; skipping the remaining {service} artists (run again after {until}).")
+                    break
                 save_cache(cache)
     connection = sqlite3.connect(DATABASE_PATH)
     try:

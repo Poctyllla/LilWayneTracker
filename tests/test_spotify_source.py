@@ -1,11 +1,17 @@
+import contextlib
+import email.message
+import io
 import sys
 import unittest
+import urllib.error
+from unittest import mock
 from pathlib import Path
 
 
 SRC_DIR = Path(__file__).resolve().parent.parent / "src"
 sys.path.insert(0, str(SRC_DIR))
 
+import spotify_source
 from spotify_source import album_id, match_tracks
 
 
@@ -23,6 +29,36 @@ class SpotifySourceTests(unittest.TestCase):
                 {"disc": 1, "number": 5, "title": "Mrs. Officer"}, {"disc": 1, "number": 7, "title": "Bonus"}]
         self.assertEqual([(a["title"], b["url"]) for a, b in match_tracks(ours, theirs)],
                          [("3 Peat", "s1"), ("Mr Carter", "s2"), ("Mrs. Officer", "s9")])
+
+
+class RateLimitTests(unittest.TestCase):
+    """A long Retry-After stops with RateLimited instead of sleeping for hours."""
+
+    def fake_429(self, seconds):
+        def urlopen(request, timeout=None):
+            raise urllib.error.HTTPError(request.full_url, 429, "Too Many Requests",
+                                         email.message.Message() if seconds is None else self.headers(seconds), None)
+        return urlopen
+
+    @staticmethod
+    def headers(seconds):
+        message = email.message.Message()
+        message["Retry-After"] = str(seconds)
+        return message
+
+    def test_long_wait_raises(self):
+        sleeps = []
+        with mock.patch.object(spotify_source, "access_token", return_value="t"),                 mock.patch.object(spotify_source.time, "sleep", sleeps.append),                 mock.patch.object(spotify_source.urllib.request, "urlopen", self.fake_429(36000)):
+            with self.assertRaises(spotify_source.RateLimited) as error:
+                spotify_source.api_get("/albums/x")
+        self.assertEqual(error.exception.seconds, 36000)
+        self.assertTrue(all(s < 1 for s in sleeps))  # never slept on the long wait
+
+    def test_short_wait_retries(self):
+        sleeps = []
+        with mock.patch.object(spotify_source, "access_token", return_value="t"),                 mock.patch.object(spotify_source.time, "sleep", sleeps.append),                 mock.patch.object(spotify_source.urllib.request, "urlopen", self.fake_429(7)),                 contextlib.redirect_stdout(io.StringIO()):
+            self.assertIsNone(spotify_source.api_get("/albums/x", attempts=2))
+        self.assertIn(8, sleeps)  # waited Retry-After + 1 once, then gave up
 
 
 if __name__ == "__main__":

@@ -64,8 +64,20 @@ def access_token():
     return _TOKEN["value"]
 
 
+MAX_WAIT = 120  # seconds; a longer Retry-After means the app is blocked for a while
+
+
+class RateLimited(Exception):
+    """Spotify asked to wait longer than MAX_WAIT (Retry-After can be hours)."""
+
+    def __init__(self, seconds):
+        super().__init__(f"Spotify rate limit: try again in {seconds // 60} min ({seconds} s)")
+        self.seconds = seconds
+
+
 def api_get(path, attempts=4):
-    """GET an API path (or full URL); JSON or None.  Honours 429 Retry-After."""
+    """GET an API path (or full URL); JSON or None.  Honours 429 Retry-After up to
+    MAX_WAIT seconds, raises RateLimited for longer waits."""
     url = path if path.startswith("http") else f"{API_URL}{path}"
     for attempt in range(1, attempts + 1):
         time.sleep(0.2)
@@ -75,9 +87,13 @@ def api_get(path, attempts=4):
             with urllib.request.urlopen(request, timeout=30) as response:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as error:
-            if error.code == 429 and attempt < attempts:
-                time.sleep(int(error.headers.get("Retry-After") or 5) + 1)
-                continue
+            if error.code == 429:
+                wait = int(error.headers.get("Retry-After") or 5)
+                if wait > MAX_WAIT:
+                    raise RateLimited(wait) from None
+                if attempt < attempts:
+                    time.sleep(wait + 1)
+                    continue
             if error.code in (500, 502, 503) and attempt < attempts:
                 time.sleep(3 * attempt)
                 continue
