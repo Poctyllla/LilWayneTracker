@@ -151,9 +151,11 @@ def save_cache(cache, path=CACHE_PATH):
 
 
 def release_tracks(connection, release_id):
-    return [{"disc": disc or 1, "number": number, "title": title, "version_id": version_id}
-            for disc, number, title, version_id in connection.execute("""
-                SELECT rt.disc_number, rt.track_number, COALESCE(rt.track_title, r.title), rt.version_id
+    return [{"disc": disc or 1, "number": number, "title": title, "version_id": version_id,
+             "recording_id": recording_id, "recording_title": recording_title, "duration_ms": duration_ms}
+            for disc, number, title, version_id, recording_id, recording_title, duration_ms in connection.execute("""
+                SELECT rt.disc_number, rt.track_number, COALESCE(rt.track_title, r.title), rt.version_id,
+                       r.id, r.title, rt.duration_ms
                 FROM release_tracks rt JOIN versions v ON v.id = rt.version_id JOIN recordings r ON r.id = v.recording_id
                 WHERE rt.release_id = ? ORDER BY rt.disc_number, rt.track_number""", (release_id,))]
 

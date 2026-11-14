@@ -172,6 +172,16 @@ def merge(connection, keep_id, drop_id):
             "UPDATE recording_musicbrainz_ids SET version_id = ? WHERE version_id = ?",
             (keep_version, version_id),
         )
+        if connection.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'version_links'").fetchone():
+            # streaming track links: the kept version's own link of a service wins
+            connection.execute("""
+                DELETE FROM version_links WHERE version_id = ? AND EXISTS (
+                    SELECT 1 FROM version_links AS kept WHERE kept.version_id = ?
+                    AND kept.service = version_links.service)
+            """, (version_id, keep_version))
+            connection.execute(
+                "UPDATE version_links SET version_id = ? WHERE version_id = ?", (keep_version, version_id)
+            )
         connection.execute("DELETE FROM versions WHERE id = ?", (version_id,))
 
     connection.execute(

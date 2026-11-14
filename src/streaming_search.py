@@ -18,6 +18,7 @@ usage:
 """
 
 import argparse
+import difflib
 import json
 import re
 import sqlite3
@@ -29,6 +30,7 @@ from pathlib import Path
 
 import spotify_source
 from import_release import DATABASE_PATH
+from duplicate_guard import GENERIC_TITLE_WORDS
 from library_matching import release_key, titles_match
 
 
@@ -113,6 +115,70 @@ def save_cache(cache, path=CACHE_PATH):
     Path(path).write_text(json.dumps(cache, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
 
 
+SIMILAR = 0.6  # title similarity for a same-position track inside an accepted album
+NOTES = re.compile(r"\s*[(\[][^)\]]*[)\]]")  # "(Lil Wayne solo)", "(feat. X)", "[Explicit]"
+# store suffixes: " - Album Version (Edited)", " - Radio Edit", " - Main Clean", " - Street", " - 2008 Remaster"
+SUFFIX = re.compile(r"\s+-\s+[^-]*\b(?:version|edit|edited|explicit|clean|main|street|remaster(?:ed)?)\b[^-]*$",
+                    re.IGNORECASE)
+FEATURING = re.compile(r"\s*[(\[](?:feat|ft|with)\.?\s[^)\]]*[)\]]", re.IGNORECASE)
+
+
+def letters(text):
+    return re.sub(r"[^0-9a-z]", "", text.casefold().replace("&", "and"))
+
+
+def bare(title):
+    """The title without bracketed notes and store suffixes, letters and digits only."""
+    return letters(NOTES.sub("", SUFFIX.sub("", str(title or ""))))
+
+
+def generic(title):
+    """Intro / outro / skit ...: such titles match only exactly (duplicate_guard rule)."""
+    return any(word in re.findall(r"[a-z]+", str(title or "").casefold()) for word in GENERIC_TITLE_WORDS)
+
+
+def similarity(a, b):
+    return difflib.SequenceMatcher(None, bare(a), bare(b)).ratio()
+
+
+def position_pairs(ours, theirs, pairs):
+    """Tracks the title match missed, inside an album already accepted: the store's
+    track at the same disc / position when the titles are similar
+    ("50 Shots Set's It Off" = "Shots Set's It Off", "Infrared Dot" = "Infared Dot")."""
+    used = {id(t) for _, t in pairs}
+    done = {id(o) for o, _ in pairs}
+    by_position = {(t["disc"], t["number"]): t for t in theirs}
+    extra = []
+    for track in ours:
+        candidate = by_position.get((track["disc"], track["number"]))
+        if id(track) in done or candidate is None or id(candidate) in used:
+            continue
+        if generic(track["title"]) or generic(candidate["title"]):
+            if bare(track["title"]) != bare(candidate["title"]):
+                continue
+        elif similarity(track["title"], candidate["title"]) < SIMILAR:
+            continue
+        extra.append((track, candidate))
+        used.add(id(candidate))
+    return extra
+
+
+def alias_key(title):
+    """Key for "is this another name": featuring and store suffixes ignored, other brackets kept."""
+    return letters(FEATURING.sub("", SUFFIX.sub("", str(title or ""))))
+
+
+def other_name(track, streaming_title):
+    """The store's title when it is a different spelling of the song (not only the
+    same title without a note such as "(B.G. solo)"), else None."""
+    if "*" in streaming_title:  # a censored spelling is not another name (search ignores stars)
+        return None
+    ours = {bare(track["recording_title"]), bare(track["title"]), alias_key(track["recording_title"]), alias_key(track["title"])}
+    if alias_key(streaming_title) in ours or bare(streaming_title) in ours:
+        return None
+    return SUFFIX.sub("", FEATURING.sub("", streaming_title)).strip()
+
+
 def best_album(release_title, our_tracks, albums):
     """(album, pairs) of the streaming album that is this release, or (None, [])."""
     key = base_key(release_title)
@@ -125,7 +191,7 @@ def best_album(release_title, our_tracks, albums):
             best, best_pairs = album, pairs
     if best is None or len(best_pairs) < MIN_OVERLAP * len(our_tracks):
         return None, []
-    return best, best_pairs
+    return best, best_pairs + position_pairs(our_tracks, best["tracks"], best_pairs)
 
 
 def release_groups(connection):
@@ -159,6 +225,8 @@ def main(argv=None):
         connection.execute("PRAGMA foreign_keys = ON")
         existing = {(r, s) for r, s in connection.execute("SELECT release_id, service FROM release_links")}
         release_links, track_links, matched = [], {}, {"spotify": 0, "apple_music": 0}
+        aliases, positional = {}, []
+        known = {(r, a.casefold()) for r, a in connection.execute("SELECT recording_id, title FROM recording_aliases")}
         for group in release_groups(connection).values():
             for service, name, source in (("spotify", "spotify", "Spotify API"), ("apple", "apple_music", "iTunes API")):
                 albums = [a for artist_albums in cache[service].values() for a in artist_albums]
@@ -169,10 +237,24 @@ def main(argv=None):
                     matched[name] += 1
                     if (release_id, name) not in existing and album.get("url"):
                         release_links.append((release_id, name, album["url"], source))
+                    by_title = {id(o) for o, t in pairs if titles_match(o["title"], t["title"])}
                     for track, streaming_track in pairs:
                         if streaming_track.get("url"):
+                            if (track["version_id"], name) not in track_links and id(track) not in by_title:
+                                positional.append((title, track["title"], streaming_track["title"], name))
                             track_links.setdefault((track["version_id"], name), (streaming_track["url"], source))
+                        alias = other_name(track, streaming_track["title"])
+                        if alias and (track["recording_id"], alias.casefold()) not in known:
+                            aliases.setdefault((track["recording_id"], alias.casefold()),
+                                               (track["recording_id"], alias, "Spotify" if name == "spotify" else "Apple Music",
+                                                f"track title on {album['title']}", track["recording_title"]))
         print(f"Releases matched: {matched}; new release links: {len(release_links)}; track links: {len(track_links)}")
+        print(f"\nTracks matched by position + similar title ({len(positional)}):")
+        for release, ours, theirs, service in positional:
+            print(f"  {release}: {ours!r} = {theirs!r} ({service})")
+        print(f"\nOther names from the stores -> recording_aliases ({len(aliases)}):")
+        for recording_id, alias, source, note, recording_title in aliases.values():
+            print(f"  {recording_title!r}: also {alias!r} ({source})")
         if not args.apply:
             print("Dry run; use --apply to store the links (make a backup first).")
             return
@@ -183,6 +265,9 @@ def main(argv=None):
             for (version_id, name), (url, source) in track_links.items():
                 connection.execute("INSERT OR IGNORE INTO version_links (version_id, service, url, source) VALUES (?, ?, ?, ?)",
                                    (version_id, name, url, source))
+            for recording_id, alias, source, note, _title in aliases.values():
+                connection.execute("INSERT OR IGNORE INTO recording_aliases (recording_id, title, source, note) VALUES (?, ?, ?, ?)",
+                                   (recording_id, alias, source, note))
         print("Stored.")
     finally:
         connection.close()

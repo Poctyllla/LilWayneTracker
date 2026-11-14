@@ -160,6 +160,27 @@ class MergeTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_merge_moves_streaming_links(self):
+        """version_links follow the merged version; the kept version's own link of a service wins."""
+        connection = self.connect()
+        try:
+            (keep_id, drop_id, _), = find_pairs(connection)[0]
+            version = lambda rec: connection.execute(
+                "SELECT id FROM versions WHERE recording_id = ? AND version_type = 'album'", (rec,)).fetchone()[0]
+            keep_version, drop_version = version(keep_id), version(drop_id)
+            with connection:
+                connection.executemany("INSERT INTO version_links (version_id, service, url) VALUES (?, ?, ?)", [
+                    (keep_version, "spotify", "https://open.spotify.com/track/kept"),
+                    (drop_version, "spotify", "https://open.spotify.com/track/dropped"),
+                    (drop_version, "apple_music", "https://music.apple.com/us/album/x/1?i=2")])
+                merge(connection, keep_id, drop_id)
+            self.assertEqual(connection.execute("SELECT version_id, service, url FROM version_links ORDER BY service").fetchall(), [
+                (keep_version, "apple_music", "https://music.apple.com/us/album/x/1?i=2"),
+                (keep_version, "spotify", "https://open.spotify.com/track/kept")])
+            self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
+        finally:
+            connection.close()
+
 
 if __name__ == "__main__":
     unittest.main()
