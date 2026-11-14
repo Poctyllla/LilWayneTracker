@@ -994,6 +994,17 @@ Done:
 - Stage 1: `src/audio_stream.py` (`parse_range`, `send_file`: 200 / 206 /
   416, chunked) moved out of `tracker_server.py` unchanged; the server only
   decides which file may be streamed.
+- Stage 2: `src/audio_providers.py` -- provider registry `PROVIDERS`
+  (`SpotifyProvider`, `AppleMusicProvider`: `LinkProvider` over
+  version_links, public embeds; `LocalFileProvider`: files table,
+  `public = False`, streamed). Each provider has `name`, `key` (field of the
+  "play" object), `public`, `kind` and `values(connection)`.
+  `playables` / `song_play` / `audio_file` moved there (tracker_data keeps the
+  names); `export_static` drops the play fields of non-public providers via
+  `private_keys()` instead of a fixed key name. Checked: identical output on
+  the real database (3043 playable versions), contract unchanged, static
+  copy without file ids. A new official provider = one class (see
+  `tests/test_audio_providers.py`).
 
 ### GitHub (Nov 14, 2026)
 

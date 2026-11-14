@@ -33,6 +33,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import audio_providers
 import audio_stream
 import genius_details
 import lyrics_source
@@ -133,7 +134,7 @@ class Handler(BaseHTTPRequestHandler):
     def audio(self, file_id):
         connection = tracker_data.connect(self.database_path)
         try:
-            found = tracker_data.audio_file(connection, file_id)
+            found = audio_providers.audio_file(connection, file_id)
         finally:
             connection.close()
         if found is None:

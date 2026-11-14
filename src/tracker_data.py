@@ -1,16 +1,15 @@
 """Read-only queries for the web tracker (tracker_server.py).
 
-Everything here only reads SQLite.  The player gets, per version, a Spotify
-track id, an Apple Music track page and -- on the owner's local server only --
-the id of a file in the owner's own library (tracker_server.py streams it to
-127.0.0.1; export_static.py drops it: the public copy never carries audio).
+Everything here only reads SQLite.  What the player can play per version
+(Spotify, Apple Music, the owner's own files on the local server only) comes
+from audio_providers.py.
 """
 
-import re
 import sqlite3
-from pathlib import Path
 
 from import_release import DATABASE_PATH
+# Playback sources live in audio_providers.py (names kept here for callers).
+from audio_providers import AUDIO_TYPES, audio_file, playables, song_play  # noqa: F401
 
 
 def connect(path=None):
@@ -85,52 +84,6 @@ def songs(connection):
             "cover": covers.get(row["id"]), "play": play.get(row["id"]), "album": albums.get(row["id"]),
         })
     return rows
-
-
-AUDIO_TYPES = {".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac", ".flac": "audio/flac",
-               ".ogg": "audio/ogg", ".wav": "audio/wav"}
-SPOTIFY_TRACK = re.compile(r"open\.spotify\.com/(?:intl-[a-z]+/)?track/([A-Za-z0-9]{10,})")
-
-
-def playables(connection):
-    """{version_id: {"spotify": track id, "apple": track page URL, "file_id": local file id}}
-    -- only what can be played as that exact track (album pages are not playable)."""
-    play = {}
-    if has_table(connection, "version_links"):
-        for version_id, service, url in connection.execute(
-                "SELECT version_id, service, url FROM version_links ORDER BY id"):
-            if service == "spotify" and SPOTIFY_TRACK.search(url):
-                play.setdefault(version_id, {}).setdefault("spotify", SPOTIFY_TRACK.search(url).group(1))
-            elif service == "apple_music" and "music.apple.com" in url and "i=" in url:
-                play.setdefault(version_id, {}).setdefault("apple", url)
-    for version_id, file_id, file_path in connection.execute(
-            "SELECT version_id, id, file_path FROM files WHERE version_id IS NOT NULL "
-            "ORDER BY COALESCE(bitrate, 0) DESC, id"):
-        if Path(file_path).suffix.lower() in AUDIO_TYPES:
-            play.setdefault(version_id, {}).setdefault("file_id", file_id)
-    return play
-
-
-def song_play(connection, play=None):
-    """{recording_id: {"v": version id, ...playable}} -- the album version when it is
-    playable, else the first playable version."""
-    play = playables(connection) if play is None else play
-    result = {}
-    for recording_id, version_id, version_type in connection.execute(
-            "SELECT recording_id, id, version_type FROM versions ORDER BY version_type != 'album', id"):
-        if version_id in play and recording_id not in result:
-            result[recording_id] = {"v": version_id, **play[version_id]}
-    return result
-
-
-def audio_file(connection, file_id):
-    """(path, content type) of a local library file that may be streamed, or None."""
-    row = connection.execute("SELECT file_path FROM files WHERE id = ?", (file_id,)).fetchone()
-    if row is None:
-        return None
-    path = Path(row[0])
-    kind = AUDIO_TYPES.get(path.suffix.lower())
-    return (path, kind) if kind and path.is_file() else None
 
 
 def has_table(connection, name):

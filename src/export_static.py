@@ -17,6 +17,7 @@ import json
 import shutil
 from pathlib import Path
 
+import audio_providers
 import tracker_data
 import tracker_server
 
@@ -25,12 +26,16 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 WEB_FOLDER = PROJECT_ROOT / "web"
 
 
+PRIVATE_PLAY_KEYS = audio_providers.private_keys()  # sources of non-public providers (local files)
+
+
 def without_local_files(value):
     """Drop local-library facts from an API answer (recursively): file marks and
-    counts, file lists and the player's local file ids (no audio in the public copy)."""
+    counts, file lists and the play fields of non-public providers
+    (audio_providers: no audio in the public copy)."""
     if isinstance(value, dict):
         return {k: (False if k == "file" else 0 if k == "files" and isinstance(v, int) else without_local_files(v))
-                for k, v in value.items() if not (k == "files" and not isinstance(v, int)) and k != "file_id"}
+                for k, v in value.items() if not (k == "files" and not isinstance(v, int)) and k not in PRIVATE_PLAY_KEYS}
     if isinstance(value, list):
         return [without_local_files(v) for v in value]
     return value
