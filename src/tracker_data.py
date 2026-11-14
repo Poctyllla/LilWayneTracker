@@ -5,7 +5,10 @@ Everything here only reads SQLite.  What the player can play per version
 from audio_providers.py.
 """
 
+import functools
+import json
 import sqlite3
+from pathlib import Path
 
 from import_release import DATABASE_PATH
 # Playback sources live in audio_providers.py (names kept here for callers).
@@ -88,6 +91,29 @@ def songs(connection):
 
 def has_table(connection, name):
     return connection.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)).fetchone() is not None
+
+
+PACKAGES_FOLDER = Path(__file__).resolve().parent.parent / "data" / "release_groups"
+
+
+@functools.lru_cache(maxsize=1)
+def edition_labels(folder=PACKAGES_FOLDER):
+    """{MusicBrainz release ID: edition label} from the release group packages
+    ("Additional: US — Official — 2008-06-10 — Target limited edition" ->
+    "Target limited edition").  Read once; empty without packages."""
+    labels = {}
+    for path in Path(folder).glob("**/*.json"):
+        try:
+            package = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for edition in [package.get("canonical_edition") or {}] + list(package.get("additional_editions") or []):
+            release_id = (edition.get("release") or {}).get("musicbrainz_release_id")
+            name = edition.get("edition_name") or ""
+            label = name.rsplit(" — ", 1)[1].strip() if " — " in name else ""
+            if release_id and label and not label.replace("-", "").isdigit() and label != "Official":  # says nothing
+                labels[release_id] = label
+    return labels
 
 
 def has_column(connection, table, column):
@@ -235,9 +261,14 @@ def song(connection, recording_id):
         cover = "r.cover_file" if has_column(connection, "releases", "cover_file") else "NULL"
         item["tracks"] = [dict(row) for row in connection.execute(f"""
             SELECT r.id AS release_id, r.title AS release, r.release_type, r.release_date, r.discography,
-                   {cover} AS cover_file, rt.disc_number, rt.track_number, rt.track_title, rt.duration_ms
+                   {cover} AS cover_file, rt.disc_number, rt.track_number, rt.track_title, rt.duration_ms,
+                   COALESCE(r.musicbrainz_release_group_id, 'release:' || r.id) AS group_id,
+                   (SELECT count(*) FROM release_tracks n WHERE n.release_id = r.id) AS release_tracks,
+                   r.musicbrainz_release_id
             FROM release_tracks rt JOIN releases r ON r.id = rt.release_id
             WHERE rt.version_id = ? ORDER BY r.release_date, r.id""", (version["id"],))]
+        for track in item["tracks"]:  # edition label from the packages (e.g. "Target limited edition")
+            track["edition"] = edition_labels().get(track.pop("musicbrainz_release_id"))
         item["files"] = connection.execute("SELECT count(*) FROM files WHERE version_id = ?",
                                            (version["id"],)).fetchone()[0]
         item["links"] = [dict(row) for row in connection.execute(
@@ -281,6 +312,23 @@ def song_covers_for(connection, recording_id):
     return song_covers(connection).get(recording_id) if has_column(connection, "releases", "cover_file") else None
 
 
+def first_editions(connection, cover="NULL AS cover_file"):
+    """The first edition of every official release group: the earliest full date
+    (YYYY-MM-DD); a year / month-only date counts only when the group has no full date."""
+    groups = {}
+    for row in connection.execute(f"""
+            SELECT id, title, release_type, release_date, {cover}, musicbrainz_release_group_id
+            FROM releases WHERE discography = 'official' AND COALESCE(release_date, '') != ''"""):
+        release = dict(row)
+        key = release.pop("musicbrainz_release_group_id") or f"release:{release['id']}"
+        groups.setdefault(key, []).append(release)
+    firsts = []
+    for releases in groups.values():
+        full = [r for r in releases if len(r["release_date"]) >= 10]
+        firsts.append(min(full or releases, key=lambda r: (r["release_date"], r["id"])))
+    return sorted(firsts, key=lambda r: (r["release_date"], r["id"]))
+
+
 def era(connection, era_id):
     """One era: its text and cover, the official releases of its period, its songs
     (own and guest) and its most credited producers and featured artists."""
@@ -290,18 +338,10 @@ def era(connection, era_id):
     result = dict(head)
     start, end = result.get("start_date") or "0000", result.get("end_date") or "9999"
     cover = "cover_file" if has_column(connection, "releases", "cover_file") else "NULL AS cover_file"
-    result["releases"] = [dict(row) for row in connection.execute(f"""
-        SELECT id, title, release_type, release_date, {cover}, musicbrainz_release_group_id
-        FROM releases WHERE discography = 'official' AND release_date IS NOT NULL
-          AND substr(release_date, 1, 10) >= ? AND substr(release_date, 1, 10) <= ?
-        ORDER BY release_date, id""", (start, end))]
-    seen, unique = set(), []
-    for release in result["releases"]:  # one entry per release group
-        key = release.pop("musicbrainz_release_group_id") or f"release:{release['id']}"
-        if key not in seen:
-            seen.add(key)
-            unique.append(release)
-    result["releases"] = unique
+    # One entry per release group, in the era of its first edition (later editions,
+    # deluxe versions and reissues do not move an album into a later era).
+    result["releases"] = [release for release in first_editions(connection, cover)
+                          if start <= release["release_date"][:10] <= end]
     result["songs"] = [dict(row) for row in connection.execute("""
         SELECT r.id, r.title, a.name AS artist, r.appearance = 'guest' AS guest, av.availability AS status
         FROM recordings r JOIN artists a ON a.id = r.artist_id JOIN recording_availability av ON av.recording_id = r.id
@@ -422,4 +462,5 @@ def release(connection, release_id):
     for track in result["tracks"]:
         track["play"] = play.get(track["version_id"])
     result["listen"] = listen_links(connection, [release_id])
+    result["edition"] = edition_labels().get(result.get("musicbrainz_release_id"))
     return result

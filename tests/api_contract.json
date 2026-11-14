@@ -123,6 +123,7 @@
   "cover_file": "str",
   "description": "null",
   "discography": "str",
+  "edition": "null",
   "id": "int",
   "label": "str",
   "listen": [
@@ -267,7 +268,7 @@
     "musicbrainz_recording_id": "null",
     "play": "{\"apple\": \"str\", \"file_id\": \"int\", \"spotify\": \"str\"}|\"null\"",
     "tracks": [
-     "{\"cover_file\": \"null|str\", \"disc_number\": \"int\", \"discography\": \"str\", \"duration_ms\": \"int\", \"release\": \"str\", \"release_date\": \"str\", \"release_id\": \"int\", \"release_type\": \"str\", \"track_number\": \"int\", \"track_title\": \"null|str\"}|null"
+     "{\"cover_file\": \"null|str\", \"disc_number\": \"int\", \"discography\": \"str\", \"duration_ms\": \"int\", \"edition\": \"null\", \"group_id\": \"str\", \"release\": \"str\", \"release_date\": \"str\", \"release_id\": \"int\", \"release_tracks\": \"int\", \"release_type\": \"str\", \"track_number\": \"int\", \"track_title\": \"null|str\"}|null"
     ],
     "version_name": "str",
     "version_type": "str"

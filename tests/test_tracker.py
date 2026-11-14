@@ -141,6 +141,28 @@ class TrackerTests(unittest.TestCase):
             self.assertEqual(error.exception.code, 404)
 
 
+class FirstEditionTests(unittest.TestCase):
+    """An album belongs to the era of its first edition, not of a later reissue."""
+
+    def test_first_editions(self):
+        connection = sqlite3.connect(":memory:")
+        connection.row_factory = sqlite3.Row
+        connection.executescript("""
+            CREATE TABLE releases (id INTEGER PRIMARY KEY, title TEXT, release_type TEXT, release_date TEXT,
+                                   discography TEXT, cover_file TEXT, musicbrainz_release_group_id TEXT);
+            INSERT INTO releases VALUES
+              (1, 'Tha Carter V', 'studio_album', '2018-09-28', 'official', NULL, 'g5'),
+              (2, 'Tha Carter V (deluxe edition)', 'studio_album', '2020-09-25', 'official', NULL, 'g5'),
+              (3, 'Rich Gang', 'group_album', '2013', 'official', NULL, 'rg'),
+              (4, 'Rich Gang', 'group_album', '2013-07-23', 'official', NULL, 'rg'),
+              (5, 'Glory', 'single', NULL, 'official', NULL, NULL),
+              (6, 'Bootleg', 'bootleg', '2008-01-01', 'unofficial', NULL, NULL),
+              (7, 'Single', 'single', '2007', 'official', NULL, NULL);
+        """)
+        firsts = {r["id"]: r["release_date"] for r in tracker_data.first_editions(connection)}
+        self.assertEqual(firsts, {1: "2018-09-28", 4: "2013-07-23", 7: "2007"})
+
+
 class PlayerTests(unittest.TestCase):
     """Player data and the local audio route (owner's library, 127.0.0.1 only)."""
 
