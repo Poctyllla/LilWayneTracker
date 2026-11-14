@@ -242,6 +242,18 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(static["features"], {"stream": False, "lyrics": False, "review": False})
         self.assertFalse(any(e["local_only"] for e in static["endpoints"]))
 
+    def test_static_file_names(self):
+        """export_static writes the v1 paths that web/api.js asks for (apiUrl)."""
+        names = {name: route.file_name(5 if route.param == "id" else "06-10" if route.param else None)
+                 for name, route in api_routes.BY_NAME.items()}
+        self.assertEqual(names["overview"], "v1/index")
+        self.assertEqual(names["song"], "v1/songs/5")
+        self.assertEqual(names["artists"], "v1/artists")
+        self.assertEqual(names["on_this_day"], "v1/on-this-day/06-10")
+        for route in api_routes.ROUTES:  # every file name is the route's own v1 path
+            self.assertTrue(route.patterns[0].match("/api/" + route.file_name(5 if route.param == "id" else "06-10")
+                                                    .replace("v1/index", "v1/")), route.name)
+
     def test_post_review_on_v1(self):
         items = self.get_json("/api/v1/review")
         with self.assertRaises(urllib.error.HTTPError) as error:  # same checks as the old path

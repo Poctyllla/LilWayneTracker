@@ -107,14 +107,10 @@ function plural(n, word) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 // The published static copy (export_static.py) reads api/<path>.json files instead of the server.
-const STATIC = Boolean(window.LWT_STATIC);
-if (STATIC) document.querySelectorAll('[data-tab="review"]').forEach((el) => el.remove());
-
-async function getJSON(url) {
-  const response = await fetch(STATIC ? `${url.replace(/^\/api\//, "api/")}.json` : url);
-  if (!response.ok) throw new Error(`${url}: ${response.status}`);
-  return response.json();
-}
+// getJSON, API.features and STATIC come from api.js (mode told by GET /api/v1/).
+API_READY.then(() => {
+  if (!API.features.review) document.querySelectorAll('[data-tab="review"]').forEach((el) => el.remove());
+}).catch(() => {});
 
 /* ---------- songs ---------- */
 
@@ -262,7 +258,7 @@ function updateFilterCount() {
 }
 
 async function openSong(id) {
-  const song = await getJSON(`/api/song/${id}`);
+  const song = await getJSON(`/api/v1/songs/${id}`);
   state.song = song;
   const main = song.versions.find((v) => v.version_type === "album" && playable(v.play)) || song.versions.find((v) => playable(v.play));
   // The album version is shown as "Appears on" (its releases, editions grouped);
@@ -410,7 +406,7 @@ function renderReleases() {
 }
 
 async function openRelease(id) {
-  const release = await getJSON(`/api/release/${id}`);
+  const release = await getJSON(`/api/v1/releases/${id}`);
   state.release = release;
   const anyPlayable = release.tracks.some((t) => playable(t.play));
   const urls = release.listen.map((l) => l.url);
@@ -441,7 +437,7 @@ async function openRelease(id) {
 
 async function init() {
   const [summary, songs, releases, people] = await Promise.all([
-    getJSON("/api/summary"), getJSON("/api/songs"), getJSON("/api/releases"), getJSON("/api/people")]);
+    getJSON("/api/v1/summary"), getJSON("/api/v1/songs"), getJSON("/api/v1/releases"), getJSON("/api/v1/artists")]);
   state.songs = songs;
   state.eras = summary.eras;
   state.eraById = new Map(summary.eras.map((e) => [e.id, e]));
@@ -553,7 +549,7 @@ function collabByYear(person) {
 }
 
 async function openArtist(id) {
-  const person = await getJSON(`/api/artist/${id}`);
+  const person = await getJSON(`/api/v1/artists/${id}`);
   const roles = Object.entries(person.roles).sort((a, b) => b[1] - a[1])
     .map(([role, n]) => `<span class="tag">${esc(roleName(role))} ${n}</span>`).join("");
   $("panel-body").innerHTML = `
@@ -629,7 +625,7 @@ document.addEventListener("mousemove", (event) => {
 /* ---------- about Lil Wayne ---------- */
 
 async function renderAbout() {
-  const p = await getJSON("/api/profile");
+  const p = await getJSON("/api/v1/profile");
   const own = state.songs.filter((s) => !s.guest);
   const born = p.born ? new Date(`${p.born}T12:00:00`).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) : "";
   const number = (n, label) => `<div class="number"><strong>${n.toLocaleString()}</strong><span>${esc(label)}</span></div>`;
@@ -666,7 +662,7 @@ function renderEraGrid() {
 }
 
 async function openEra(id) {
-  const era = await getJSON(`/api/era/${id}`);
+  const era = await getJSON(`/api/v1/eras/${id}`);
   const own = era.songs.filter((s) => !s.guest);
   const counts = Object.fromEntries(STATUS_SERIES.map((s) => [s.key, own.filter((x) => x.status === s.key).length]));
   const releaseCards = era.releases.map((r) => `<a class="mini-card" href="#/release/${r.id}">
@@ -698,7 +694,7 @@ async function openEra(id) {
 /* ---------- statistics ---------- */
 
 async function renderStats() {
-  const data = await getJSON("/api/stats");
+  const data = await getJSON("/api/v1/stats");
   const eraRows = data.by_era.map((e) => ({ label: e.name, href: `#/era/${e.id}`, values: e }));
   const yearRows = data.by_year.map((y) => ({ label: y.year, values: y }));
   const top = (list) => list.map((p) => ({ label: p.name, href: `#/artist/${p.id}`, value: p.songs }));
@@ -789,7 +785,7 @@ function renderReview() {
 }
 
 async function loadReview() {
-  state.review = await getJSON("/api/review");
+  state.review = await getJSON("/api/v1/review");
   renderReview();
 }
 
@@ -802,7 +798,7 @@ $("review-list").addEventListener("click", async (event) => {
   if (button.dataset.recording) decision.recording = Number(button.dataset.recording);
   if (button.dataset.of) decision.of = Number(button.dataset.of);
   card.querySelectorAll("button").forEach((b) => { b.disabled = true; });
-  const response = await fetch("/api/review", { method: "POST", headers: { "Content-Type": "application/json" },
+  const response = await fetch("/api/v1/review", { method: "POST", headers: { "Content-Type": "application/json" },
                                                 body: JSON.stringify(decision) });
   if (response.ok) {
     state.review = state.review.filter((i) => i.key !== decision.key);
@@ -883,7 +879,7 @@ document.addEventListener("keydown", (event) => { if (event.key === "Escape") se
 async function loadToday() {
   const now = new Date();
   const monthDay = `${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  const items = await getJSON(`/api/on-this-day/${monthDay}`);
+  const items = await getJSON(`/api/v1/on-this-day/${monthDay}`);
   state.today = items;
   state.todayKey = `${now.getFullYear()}-${monthDay}`;
   let read = false;
@@ -977,7 +973,7 @@ applySettings(loadSettings());
 /* ---------- timeline ---------- */
 
 async function renderTimeline() {
-  state.timeline = state.timeline || await getJSON("/api/timeline");
+  state.timeline = state.timeline || await getJSON("/api/v1/timeline");
   $("timeline").innerHTML = `<div class="timeline">${state.timeline.map((y) => `
     <section class="year"><div class="year-label">${esc(y.year)}</div><div class="year-body">
       ${y.eras.map((e) => `<a class="era-mark" href="#/era/${e.id}">◆ ${esc(e.name)} era ends · ${esc(fmtDate(e.date))}</a>`).join("")}
@@ -1009,7 +1005,7 @@ function setLightbox(src, alt = "") {
 async function largeCover(src) {
   const match = src.match(/covers\/(release|era)_(\d+)\.jpg/);
   if (!match) return [];
-  const data = await getJSON(`/api/${match[1]}/${match[2]}`).catch(() => null);
+  const data = await getJSON(`/api/v1/${match[1]}s/${match[2]}`).catch(() => null);
   if (!data) return [];
   const urls = [];
   if (data.musicbrainz_release_id) urls.push(`https://coverartarchive.org/release/${data.musicbrainz_release_id}/front-1200`);

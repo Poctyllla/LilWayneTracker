@@ -48,9 +48,9 @@ class Route:
         return None
 
     def file_name(self, value=None):
-        """Name of this answer in the static copy (api/<name>.json): the path the page
-        reads -- the old one while it exists."""
-        template = self.legacy if self.legacy is not None else f"v1/{self.path or 'index'}"
+        """Name of this answer in the static copy: api/<name>.json, the v1 path
+        (web/api.js maps "/api/v1/songs/5" to "api/v1/songs/5.json"; the overview is v1/index)."""
+        template = f"v1/{self.path or 'index'}"
         return template.replace("{" + self.param + "}", str(value)) if self.param else template
 
 

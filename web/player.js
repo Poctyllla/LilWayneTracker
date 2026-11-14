@@ -11,8 +11,8 @@
  * else the next available one.
  * Queue (add / remove / clear), shuffle, repeat (off / queue / song forever /
  * song once), volume (local files: the embeds have their own) and synced
- * lyrics (local server only: /api/lyrics/<version>, LRCLIB, never stored).
- * Uses app.js globals ($, esc, state, duration, eraOf, loadSettings, STATIC).
+ * lyrics (local server only: /api/v1/lyrics/<version>, LRCLIB, never stored).
+ * Uses app.js / api.js globals ($, esc, state, duration, eraOf, loadSettings, API).
  */
 
 const PLAYER_ORDER = ["spotify", "apple", "file"];
@@ -57,7 +57,7 @@ function preferredSource() {
 
 // The sources of one queue item that this copy of the site can play.
 function sourcesOf(item) {
-  const have = { spotify: item.spotify, apple: item.apple, file: !STATIC && item.file_id };
+  const have = { spotify: item.spotify, apple: item.apple, file: API.features.stream && item.file_id };
   const preferred = preferredSource();
   return [preferred, ...PLAYER_ORDER.filter((s) => s !== preferred)].filter((s) => have[s]);
 }
@@ -187,7 +187,7 @@ function playCurrent(replay = false) {
   $("player").hidden = false;
   document.body.classList.add("has-player");
   if (player.source === "file") {
-    audio.src = `/api/audio/${item.file_id}`;
+    audio.src = `/api/v1/stream/${item.file_id}`;
     applyVolume();
     audio.play().catch((error) => {  // AbortError: the source changed meanwhile (not a failure)
       if (error.name === "NotAllowedError") showHint("The browser blocked playback: press ▶.");
@@ -342,7 +342,7 @@ async function loadLyrics() {
   box.innerHTML = `<p class="muted">Looking for lyrics…</p>`;
   let data = lyricsCache.get(item.v);
   if (!data) {
-    try { data = await getJSON(`/api/lyrics/${item.v}`); } catch (e) { data = { error: e.message }; }
+    try { data = await getJSON(`/api/v1/lyrics/${item.v}`); } catch (e) { data = { error: e.message }; }
     if (!data.error) lyricsCache.set(item.v, data);
   }
   if (player.queue[player.index] !== item) return;  // the track changed meanwhile
@@ -487,7 +487,7 @@ function openFull(open) {
 }
 
 function setSide(side) {
-  player.side = STATIC ? "queue" : side;
+  player.side = API.features.lyrics ? side : "queue";
   for (const tab of document.querySelectorAll("[data-side]")) tab.setAttribute("aria-selected", String(tab.dataset.side === player.side));
   $("pf-queue").hidden = player.side !== "queue";
   $("pf-clear").hidden = player.side !== "queue";
@@ -660,16 +660,15 @@ document.addEventListener("click", (event) => {
   else startQueue(items, index);
 }, true);
 
-if (STATIC) {
-  document.querySelector('#set-player option[value="file"]').remove();
-  $("pf-lyrics-tab").remove();
-  $("pl-lyrics-open").remove();
-}
+API_READY.then(() => {  // features of this mode (api.js): no local files / lyrics in the static copy
+  if (!API.features.stream) document.querySelector('#set-player option[value="file"]')?.remove();
+  if (!API.features.lyrics) { $("pf-lyrics-tab").remove(); $("pl-lyrics-open").remove(); }
+}).catch(() => {});
 for (const el of document.querySelectorAll('[data-pl="prev"]')) el.innerHTML = icon("prev");
 for (const el of document.querySelectorAll('[data-pl="next"]')) el.innerHTML = icon("next");
 for (const el of document.querySelectorAll('[data-pl="shuffle"]')) el.innerHTML = icon("shuffle");
 $("pl-queue-open").innerHTML = icon("queue");
-if (!STATIC) $("pl-lyrics-open").innerHTML = icon("lyrics");
+$("pl-lyrics-open").innerHTML = icon("lyrics");
 renderModes();
 applyVolume();
 renderProgress();

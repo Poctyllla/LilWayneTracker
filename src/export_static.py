@@ -1,11 +1,11 @@
 """Static copy of the web tracker for publishing (no server needed).
 
-Writes dist/: the page (web/), the covers, and every API answer as a JSON file
-(api/songs.json, api/song/<id>.json, ...).  The page detects the static copy
-(dist/static.js sets window.LWT_STATIC) and reads those files instead of the
-server.  Left out on purpose: the "Needs review" page (it writes decisions)
-and everything about the owner's local music library (the "local file"
-marks and counts) -- they describe a private collection, not the catalogue.
+Writes dist/: the page (web/) and every public route of api_routes.py as a
+JSON file under api/v1/ (api/v1/songs.json, api/v1/songs/<id>.json, ...,
+api/v1/index.json = the overview in "static" mode).  web/api.js reads the
+overview and then those files.  Left out on purpose: the local-only routes
+(streaming of the owner's files, lyrics, the "Needs review" page) and every
+fact about the owner's local music library (file marks, counts, ids).
 No audio is ever copied.
 
 usage:
@@ -52,10 +52,6 @@ def export(out, connection):
     if out.exists():
         shutil.rmtree(out)
     shutil.copytree(WEB_FOLDER, out)
-    (out / "static.js").write_text("window.LWT_STATIC = true;\n", encoding="utf-8")
-    index = (out / "index.html").read_text(encoding="utf-8")
-    (out / "index.html").write_text(index.replace('<script src="app.js">', '<script src="static.js"></script>\n<script src="app.js">'),
-                                    encoding="utf-8")
     # Every public route of api_routes.py, once per id; local-only routes (the owner's
     # files, lyrics, review) are never written.  "files" counts become 0 in write().
     context = {"mode": "static", "profile": tracker_server.artist_profile, "decisions": lambda: None}
