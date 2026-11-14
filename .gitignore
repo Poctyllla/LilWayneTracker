@@ -28,3 +28,6 @@ web/covers/*
 *.m4a
 *.flac
 *.wav
+
+# Private working notes (decisions, data state); the public description is README.md.
+PROJECT_NOTES.md
