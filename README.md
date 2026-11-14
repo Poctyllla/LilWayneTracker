@@ -960,6 +960,31 @@ never stored in SQLite / files / the static export (lyrics are copyrighted;
 a public site would need a licensed provider such as Musixmatch's commercial
 API). Lines follow the position of local files and Spotify (not Apple: no
 position); clicking a line seeks. Tests: `tests/test_lyrics_source.py`.
+Round three (user, Nov 14, 2026): every song shows its album / project
+(`tracker_data.song_albums`: official before unofficial, albums / mixtapes
+before singles, then the earliest) and its era; "▶ Listen" spans the card /
+title cell with "+" at the right edge; shuffle and repeat look like the
+other buttons (on = accent colour + dot); lyrics icon = speech bubble.
+Filters and Settings use pill chips (`select[data-chips]` stays the source
+of truth, `refreshChips()` draws the pills) and styled selects. Settings:
+sections on the left (Appearance, Songs, Player, About) with the GitHub link
+at the bottom, options on the right. Colour styles: purple (default), gold,
+red, blue, green (light / dark variants, >= 4.5:1 on the surface) and "From
+the playing cover" (player.js: dominant colour of the cover -> accent with
+the lightness chosen for 4.5:1 contrast, plus a page tint).
+
+### GitHub (Nov 14, 2026)
+
+Public repository https://github.com/Poctyllla/LilWayneTracker -- code only
+(owner's decision): `src/`, `tests/`, the page code in `web/`,
+`requirements.txt`, this README. `.gitignore` keeps out `data/` (database
+with library paths, backups, decisions), `exports/` (API caches whose terms
+forbid re-publishing), `dist/`, cover art (only the CC BY 2.0 photo
+`web/covers/artist.jpg` is included) and any audio. Commits use the GitHub
+no-reply address. The project folder belongs to the Administrators group,
+so git needs `safe.directory` for it (set globally once).
+AGENTS.md was renamed to README.md (owner's decision): coding agents must be
+told to read README.md at the start of a session.
 Next:
 Spotify / Apple Music links for official released songs; a settings page
 later. The page can be checked with headless Edge
