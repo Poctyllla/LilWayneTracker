@@ -138,6 +138,12 @@ function eraSummary(era) {
   return `<p class="era-summary">${esc(era.summary)}${credit}</p>`;
 }
 
+// "Tha Carter III era" -- an era is named after its album, but it is a period, not the album.
+function eraName(era) {
+  const name = (era && (era.name || era)) || "";
+  return /\bera$/i.test(name) ? name : `${name} era`;
+}
+
 function eraOf(song) {
   return state.eraById.get(song.era) || null;
 }
@@ -170,7 +176,7 @@ const VIEWS = {
       <td><div class="title">${esc(song.title)}</div>${songMeta(song)}${playButton(song.play, `data-play-song="${song.id}"`)}</td>
       <td class="era-cell">${song.album ? `<a class="album-link" href="#/release/${song.album.id}" title="Album / project">${esc(song.album.title)}</a>`
         : `<span class="muted">No release</span>`}
-        <div class="era-line">${era ? `<a href="#/era/${era.id}">${esc(era.name)} era</a>` : "No era"}</div></td>
+        <div class="era-line">${era ? `<a href="#/era/${era.id}">${esc(eraName(era))}</a>` : "No era"}</div></td>
       <td class="types">${song.types.map((t) => `<span class="tag">${esc(VERSION_TYPES[t] || t)}</span>`).join("")}</td>
       <td>${badge(song.status)}</td>
       <td class="date">${esc(fmtDate(song.date))}</td>
@@ -184,7 +190,7 @@ const VIEWS = {
         <div class="card-foot">${badge(song.status)}<span class="date">${esc((song.date || "").slice(0, 4))}</span>
           ${song.file ? `<span class="file">♪</span>` : ""}</div>
         <div class="card-album" title="Album / project">${song.album ? esc(song.album.title) : "No release"}</div>
-        <div class="artist">${esc(era ? `${era.name} era` : "No era")}</div>
+        <div class="artist">${esc(era ? eraName(era) : "No era")}</div>
         ${playButton(song.play, `data-play-song="${song.id}"`)}</div></a>`;
   }).join("")}</div>`,
   compact: (songs) => `<table class="rows compact">${songs.map((song) => {
@@ -192,7 +198,7 @@ const VIEWS = {
     return `<tr data-id="${song.id}"><td class="play-cell">${playButton(song.play, `data-play-song="${song.id}"`, "")}</td><td class="title">${esc(song.title)}</td>
       <td class="artist">${song.guest || song.artist !== "Lil Wayne" ? esc(song.artist) : ""}</td>
       <td class="artist">${song.album ? esc(song.album.title) : ""}</td>
-      <td class="artist">${esc(era ? `${era.name} era` : "")}</td>
+      <td class="artist">${esc(era ? eraName(era) : "")}</td>
       <td><span class="dot ${esc(song.status)}" title="${esc(STATUS[song.status])}"></span></td>
       <td class="date">${esc(fmtDate(song.date))}</td><td class="file">${song.file ? "♪" : ""}</td></tr>`;
   }).join("")}</table>`,
@@ -311,7 +317,7 @@ async function openSong(id) {
     <div class="panel-head">${headCover}<div>
       <h2>${esc(song.title)}</h2>
       <div class="muted"><a href="#/artist/${song.artist_id}">${esc(song.artist)}</a>${song.appearance === "guest" ? " · guest appearance" : ""}
-        · ${listed.era ? `<a href="#/era/${listed.era}">${esc(song.era)}</a>` : esc(song.era || "no era")} ${badge(song.availability)}</div>
+        · ${listed.era ? `<a href="#/era/${listed.era}">${esc(eraName(song.era))}</a>` : esc(song.era ? eraName(song.era) : "no era")} ${badge(song.availability)}</div>
       ${song.aliases.length ? `<p class="muted">Also known as: ${esc(song.aliases.join(", "))}</p>` : ""}
       ${main ? `<div class="head-play">${playButton(main.play, `data-play-version="${main.id}"`)}</div>` : ""}
       ${song.listen.length ? `<div class="listen">${serviceLinks(song.listen.map((l) => l.url))}</div>` : ""}
@@ -385,25 +391,79 @@ function compareVersions(song) {
 
 /* ---------- releases ---------- */
 
-function renderReleases() {
-  const query = fold($("release-search").value.trim());
-  const discography = $("discography").value;
-  const list = state.releases.filter((r) => r.discography === discography && (!query || fold(r.title).includes(query)));
+const RELEASE_VIEWS = ["list", "grid", "compact"];
+const capital = (text) => text ? text.charAt(0).toUpperCase() + text.slice(1) : "";
+
+// One entry per album: the first edition stands for its release group; the other
+// editions (deluxe, bonus, Target ...) are listed in the release window.
+function releaseEntries(list) {
   const groups = new Map();
   for (const release of list) {
-    if (!groups.has(release.release_type)) groups.set(release.release_type, []);
-    groups.get(release.release_type).push(release);
+    if (!groups.has(release.group_id)) groups.set(release.group_id, []);
+    groups.get(release.group_id).push(release);
   }
+  const date = (r) => (r.release_date && r.release_date.length >= 10 ? r.release_date : `${r.release_date || "9999"}~`);
+  return [...groups.values()].map((items) => {
+    items.sort((a, b) => date(a).localeCompare(date(b)) || a.id - b.id);
+    return { ...items[0], editions: items.length };
+  }).sort((a, b) => (a.release_date || "9999").localeCompare(b.release_date || "9999") || a.title.localeCompare(b.title));
+}
+
+function releaseCover(r, size) {
+  return `<img class="cover ${size}" src="covers/${esc(r.cover_file || "artist.jpg")}" alt="" loading="lazy">`;
+}
+
+const RELEASE_RENDER = {
+  list: (items) => `<div class="release-rows">${items.map((r) => `<div class="release-row" data-release="${r.id}">
+      ${releaseCover(r, "medium")}<span class="release-text"><span class="title">${esc(r.title)}</span>
+      <span class="muted">${esc(fmtDate(r.release_date) || "no date")} · ${plural(r.tracks, "track")}${r.editions > 1
+        ? ` · <span class="editions-badge">${r.editions} editions</span>` : ""}</span></span></div>`).join("")}</div>`,
+  grid: (items) => `<div class="grid">${items.map((r) => `<a class="card" href="#/release/${r.id}">${releaseCover(r, "card-cover")}
+      <div class="card-body"><div class="title">${esc(r.title)}</div>
+        <div class="artist">${esc((r.release_date || "").slice(0, 4) || "no date")} · ${plural(r.tracks, "track")}</div>
+        ${r.editions > 1 ? `<div class="artist"><span class="editions-badge">${r.editions} editions</span></div>` : ""}</div></a>`).join("")}</div>`,
+  compact: (items) => `<table class="rows compact">${items.map((r) => `<tr data-release="${r.id}">
+      <td class="title">${esc(r.title)}</td><td class="date">${esc(fmtDate(r.release_date) || "")}</td>
+      <td class="artist">${plural(r.tracks, "track")}</td><td class="artist">${r.editions > 1 ? `${r.editions} editions` : ""}</td></tr>`).join("")}</table>`,
+};
+
+function renderReleases() {
+  try { state.releaseView = RELEASE_VIEWS.includes(state.releaseView) ? state.releaseView : localStorage.getItem("lwt-release-view") || "list"; }
+  catch (e) { state.releaseView = state.releaseView || "list"; }
+  if (!RELEASE_VIEWS.includes(state.releaseView)) state.releaseView = "list";
+  for (const b of document.querySelectorAll("#release-views button")) b.classList.toggle("on", b.dataset.view === state.releaseView);
+  const query = fold($("release-search").value.trim());
+  const discography = $("discography").value;
+  // a query matches any edition, the entry shows the album
+  const groupsHit = new Set(state.releases.filter((r) => r.discography === discography && (!query || fold(r.title).includes(query)))
+    .map((r) => r.group_id));
+  const entries = releaseEntries(state.releases.filter((r) => r.discography === discography && groupsHit.has(r.group_id)));
+  const byType = new Map();
+  for (const entry of entries) {
+    if (!byType.has(entry.release_type)) byType.set(entry.release_type, []);
+    byType.get(entry.release_type).push(entry);
+  }
+  state.releaseOpen = state.releaseOpen || {};
   const order = Object.keys(RELEASE_TYPES);
-  $("release-list").innerHTML = [...groups.entries()]
+  $("release-total").textContent = `${plural(entries.length, "release")} · ${plural(groupsHit.size ? state.releases.filter((r) => groupsHit.has(r.group_id)).length : 0, "edition")}`;
+  $("release-list").innerHTML = [...byType.entries()]
     .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
-    .map(([type, items]) => `<div class="group"><h2>${esc(RELEASE_TYPES[type] || type)} (${items.length})</h2>
-      ${items.map((r) => `<div class="release-row" data-release="${r.id}"><span class="release-name">
-        ${r.cover_file ? `<img class="cover small" src="covers/${esc(r.cover_file)}" alt="" loading="lazy">`
-          : `<img class="cover small" src="covers/artist.jpg" alt="" loading="lazy">`}${esc(r.title)}</span>
-        <span class="muted">${esc(r.release_date || "?")} · ${plural(r.tracks, "track")}</span></div>`).join("")}</div>`).join("")
+    .map(([type, items]) => `<details class="release-group" data-type="${esc(type)}" ${state.releaseOpen[type] === false ? "" : "open"}>
+      <summary><span class="chevron" aria-hidden="true"></span>${esc(RELEASE_TYPES[type] || type)} <span class="muted">${items.length}</span></summary>
+      ${RELEASE_RENDER[state.releaseView](items)}</details>`).join("")
     || `<p class="muted">Nothing found.</p>`;
 }
+$("release-views").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-view]");
+  if (!button) return;
+  state.releaseView = button.dataset.view;
+  try { localStorage.setItem("lwt-release-view", state.releaseView); } catch (e) { /* storage unavailable */ }
+  renderReleases();
+});
+$("release-list").addEventListener("toggle", (event) => {  // remember folded categories
+  const group = event.target.closest(".release-group");
+  if (group) state.releaseOpen[group.dataset.type] = group.open;
+}, true);
 
 async function openRelease(id) {
   const release = await getJSON(`/api/v1/releases/${id}`);
@@ -418,7 +478,9 @@ async function openRelease(id) {
     <div class="panel-head">${release.cover_file ? `<img class="cover big" src="covers/${esc(release.cover_file)}" alt="">`
       : `<img class="cover big" src="covers/artist.jpg" alt="" loading="lazy">`}<div>
       <h2>${esc(release.title)}</h2>
-      <div class="muted">${esc(RELEASE_TYPES[release.release_type] || release.release_type)} · ${esc(release.release_date || "?")}
+      ${release.edition ? `<div class="edition-label">${esc(capital(release.edition))}</div>` : ""}
+      <div class="muted">${esc((RELEASE_TYPES[release.release_type] || release.release_type).replace(/s$/, ""))} · ${esc(fmtDate(release.release_date) || "?")}
+        · ${plural(release.tracks.length, "track")}
         ${release.label ? ` · ${esc(release.label)}` : ""} · ${release.discography === "official" ? "official" : "unofficial"}</div>
       ${anyPlayable ? `<div class="head-play"><button type="button" class="play-btn" data-play-release="">▶ Play all</button></div>` : ""}
       ${streaming.length ? `<div class="listen">${serviceLinks(streaming)}</div>` : ""}</div></div>
@@ -429,6 +491,11 @@ async function openRelease(id) {
       <td><span class="title">${esc(t.title)}</span>
         ${t.version_type && t.version_type !== "album" ? `<span class="tag">${esc(VERSION_TYPES[t.version_type] || t.version_type)}</span>` : ""}</td>
       <td class="date">${duration(t.duration_ms)}</td><td class="file">${t.file ? "♪" : ""}</td></tr>`).join("")}</table>
+    ${(release.editions || []).length ? `<h3>Other editions</h3><div class="other-editions">${release.editions.map((e) =>
+      `<a class="mini-card" href="#/release/${e.id}">${releaseCover(release, "small")}<span><span class="title">${esc(e.edition
+        ? capital(e.edition) : e.title !== release.title ? e.title : fmtDate(e.release_date) || "Edition")}</span><br>
+        <span class="muted">${esc(fmtDate(e.release_date) || "no date")} · ${plural(e.tracks, "track")}${e.tracks !== release.tracks.length
+          ? ` (${e.tracks > release.tracks.length ? "+" : ""}${e.tracks - release.tracks.length})` : ""}</span></span></a>`).join("")}</div>` : ""}
     ${sources.length ? `<h3>Sources</h3>${serviceLinks(sources)}` : ""}`;
   showPanel();
 }
@@ -452,7 +519,7 @@ async function init() {
   const c = summary.counts;
   $("totals").textContent = `${c.songs} songs · ${c.guest_songs} guest appearances · ${c.versions} versions · `
     + `${c.releases} releases · ${c.credits} credits · ${c.files} local files`;
-  $("era").insertAdjacentHTML("beforeend", summary.eras.map((e) => `<option value="${e.id}">${esc(e.name)}</option>`).join("")
+  $("era").insertAdjacentHTML("beforeend", summary.eras.map((e) => `<option value="${e.id}">${esc(eraName(e))}</option>`).join("")
     + `<option value="none">No era</option>`);
   const types = [...new Set(songs.flatMap((s) => s.types))].sort();
   $("vtype").insertAdjacentHTML("beforeend", types.map((t) => `<option value="${esc(t)}">${esc(VERSION_TYPES[t] || t)}</option>`).join(""));
@@ -650,16 +717,39 @@ async function renderAbout() {
 
 /* ---------- eras ---------- */
 
+const ERA_VIEWS = ["grid", "list"];
+function eraPeriod(era) {
+  return `${esc(fmtDate(era.start_date) || "…")} – ${esc(era.end_date ? fmtDate(era.end_date) : "today")}`;
+}
 function renderEraGrid() {
-  $("era-grid").innerHTML = state.eras.map((era) => {
+  try { state.eraView = ERA_VIEWS.includes(state.eraView) ? state.eraView : localStorage.getItem("lwt-era-view") || "grid"; }
+  catch (e) { state.eraView = state.eraView || "grid"; }
+  for (const b of document.querySelectorAll("#era-views button")) b.classList.toggle("on", b.dataset.view === state.eraView);
+  $("era-total").textContent = plural(state.eras.length, "era");
+  const cards = state.eras.map((era) => {
     const songs = state.songs.filter((s) => s.era === era.id && !s.guest);
     const counts = STATUS_SERIES.map((s) => [s, songs.filter((x) => x.status === s.key).length]);
+    const badges = `<div class="era-counts">${counts.map(([s, n]) => `<span class="badge ${s.key}" title="${esc(s.label)}">${n}</span>`).join("")}</div>`;
+    if (state.eraView === "list") {
+      return `<a class="era-row" href="#/era/${era.id}">${coverImg(era, "medium")}
+        <span class="era-row-text"><span class="title">${esc(eraName(era))}</span>
+          <span class="muted">${eraPeriod(era)} · ${plural(songs.length, "song")}</span>
+          ${era.summary ? `<span class="era-row-summary">${esc(era.summary)}</span>` : ""}</span>${badges}</a>`;
+    }
     return `<a class="era-card" href="#/era/${era.id}">${coverImg(era, "card-cover")}
-      <div class="card-body"><div class="title">${esc(era.name)}</div>
-        <div class="artist">${esc(era.start_date || "…")} – ${esc(era.end_date || "today")}</div>
-        <div class="era-counts">${counts.map(([s, n]) => `<span class="badge ${s.key}">${n}</span>`).join("")}</div></div></a>`;
+      <div class="card-body"><div class="title">${esc(eraName(era))}</div>
+        <div class="artist">${eraPeriod(era)}</div>${badges}</div></a>`;
   }).join("");
+  $("era-grid").className = state.eraView === "list" ? "era-list" : "era-grid";
+  $("era-grid").innerHTML = cards;
 }
+$("era-views").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-view]");
+  if (!button) return;
+  state.eraView = button.dataset.view;
+  try { localStorage.setItem("lwt-era-view", state.eraView); } catch (e) { /* storage unavailable */ }
+  renderEraGrid();
+});
 
 async function openEra(id) {
   const era = await getJSON(`/api/v1/eras/${id}`);
@@ -675,11 +765,11 @@ async function openEra(id) {
   $("era-detail").innerHTML = `
     <a class="back" href="#/eras">← All eras</a>
     <div class="era-hero">${coverImg(era, "hero")}<div>
-      <h2>${esc(era.name)}</h2>
-      <div class="muted">${esc(era.start_date || "…")} – ${esc(era.end_date || "today")} · ${plural(own.length, "song")}
+      <h2>${esc(eraName(era))}</h2>
+      <div class="muted">${eraPeriod(era)} · ${plural(own.length, "song")}
         · ${plural(era.songs.length - own.length, "guest appearance")}</div>
       ${eraSummary(era)}
-      ${stackedBars("Songs of this era", [{ label: era.name, values: counts }], STATUS_SERIES)}
+      ${stackedBars("Songs of this era", [{ label: eraName(era), values: counts }], STATUS_SERIES)}
     </div></div>
     ${era.releases.length ? `<h3>Official releases of the period</h3><div class="mini-grid">${releaseCards}</div>` : ""}
     ${era.producers.length ? `<h3>Producers</h3><p>${people(era.producers)}</p>` : ""}
@@ -687,6 +777,7 @@ async function openEra(id) {
     ${STATUS_SERIES.map((s) => counts[s.key] ? `<h3><span class="badge ${s.key}">${s.label}</span> ${counts[s.key]}</h3>
       <p class="song-cloud">${songList(s.key)}</p>` : "").join("")}`;
   $("era-grid").hidden = true;
+  $("era-view-bar").hidden = true;
   $("era-detail").hidden = false;
   window.scrollTo({ top: 0 });
 }
@@ -837,7 +928,7 @@ function showTab(name) {
 async function route() {
   const [, kind, id] = (location.hash.match(/^#\/(\w+)(?:\/(\d+))?/) || []);
   if (kind in SECTION_NAMES) showTab(kind);
-  if (kind === "eras") { $("era-grid").hidden = false; $("era-detail").hidden = true; }
+  if (kind === "eras") { $("era-grid").hidden = false; $("era-view-bar").hidden = false; $("era-detail").hidden = true; }
   try {
     if (kind === "era" && id) { showTab("eras"); $("panel").hidden = true; await openEra(id); }
     else if (kind === "song" && id) await openSong(id);
@@ -972,11 +1063,27 @@ applySettings(loadSettings());
 
 /* ---------- timeline ---------- */
 
+// The eras (start - end) a year belongs to, and the eras that begin / end in it.
+function yearEras(year) {
+  const inYear = (date) => (date || "").slice(0, 4) === year;
+  const active = state.eras.filter((e) => (e.start_date || "0000") <= `${year}-12-31` && (e.end_date || "9999") >= `${year}-01-01`);
+  const marks = [
+    ...state.eras.filter((e) => inYear(e.start_date)).map((e) => ({ era: e, date: e.start_date, kind: "begins" })),
+    ...state.eras.filter((e) => inYear(e.end_date)).map((e) => ({ era: e, date: e.end_date, kind: "ends" })),
+  ].sort((a, b) => a.date.localeCompare(b.date) || (a.kind === "ends" ? -1 : 1));
+  return { active, marks };
+}
+
 async function renderTimeline() {
   state.timeline = state.timeline || await getJSON("/api/v1/timeline");
-  $("timeline").innerHTML = `<div class="timeline">${state.timeline.map((y) => `
-    <section class="year"><div class="year-label">${esc(y.year)}</div><div class="year-body">
-      ${y.eras.map((e) => `<a class="era-mark" href="#/era/${e.id}">◆ ${esc(e.name)} era ends · ${esc(fmtDate(e.date))}</a>`).join("")}
+  $("timeline").innerHTML = `<div class="timeline">${state.timeline.map((y) => {
+    const { active, marks } = yearEras(y.year);
+    return `
+    <section class="year"><div class="year-label">${esc(y.year)}
+      ${active.map((e) => `<a class="year-era" href="#/era/${e.id}">${coverImg(e, "tiny")}${esc(eraName(e))}</a>`).join("")}</div>
+      <div class="year-body">
+      ${marks.map((m) => `<a class="era-mark ${m.kind}" href="#/era/${m.era.id}">${m.kind === "begins" ? "▶" : "■"}
+        ${esc(eraName(m.era))} ${m.kind} · ${esc(fmtDate(m.date))}</a>`).join("")}
       <div class="mini-grid">${y.releases.map((r) => `<a class="mini-card" href="#/release/${r.id}">
         ${r.cover_file ? `<img class="cover small" src="covers/${esc(r.cover_file)}" alt="" loading="lazy">`
           : `<img class="cover small" src="covers/artist.jpg" alt="" loading="lazy">`}
@@ -986,7 +1093,8 @@ async function renderTimeline() {
         y.bootleg_list.map((b) => `<a class="mini-card" href="#/release/${b.id}">${b.cover_file
           ? `<img class="cover small" src="covers/${esc(b.cover_file)}" alt="" loading="lazy">` : ""}<span>${esc(b.title)}</span></a>`).join("")}</div></details>` : ""}
       ${y.first_known ? `<p class="muted">${plural(y.first_known, "unreleased version")} first known this year</p>` : ""}
-    </div></section>`).join("")}</div>`;
+    </div></section>`;
+  }).join("")}</div>`;
 }
 window.addEventListener("scroll", () => { $("to-top").hidden = window.scrollY < 500; }, { passive: true });
 $("to-top").addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));

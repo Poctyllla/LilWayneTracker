@@ -124,6 +124,7 @@
   "description": "null",
   "discography": "str",
   "edition": "null",
+  "editions": [],
   "id": "int",
   "label": "str",
   "listen": [
@@ -160,6 +161,8 @@
   {
    "cover_file": "null|str",
    "discography": "str",
+   "edition": "null",
+   "group_id": "str",
    "id": "int",
    "release_date": "str",
    "release_type": "str",

@@ -139,6 +139,12 @@
   <section id="timeline-view" hidden><div id="timeline"></div></section>
 
   <section id="eras-view" hidden>
+    <div class="view-bar" id="era-view-bar">
+      <span class="muted" id="era-total"></span>
+      <div class="seg" role="radiogroup" aria-label="View" id="era-views">
+        <button type="button" data-view="grid">▦ Grid</button><button type="button" data-view="list">☰ List</button>
+      </div>
+    </div>
     <div id="era-grid" class="era-grid"></div>
     <div id="era-detail" hidden></div>
   </section>
@@ -154,7 +160,11 @@
         <option value="official">Official discography</option>
         <option value="unofficial">Unofficial (bootlegs)</option>
       </select>
+      <div class="seg" role="radiogroup" aria-label="View" id="release-views">
+        <button type="button" data-view="list">☰ List</button><button type="button" data-view="grid">▦ Grid</button><button type="button" data-view="compact">≡ Compact</button>
+      </div>
     </div>
+    <p class="muted" id="release-total"></p>
     <div id="release-list"></div>
   </section>
 

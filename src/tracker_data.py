@@ -111,8 +111,13 @@ def edition_labels(folder=PACKAGES_FOLDER):
             release_id = (edition.get("release") or {}).get("musicbrainz_release_id")
             name = edition.get("edition_name") or ""
             label = name.rsplit(" — ", 1)[1].strip() if " — " in name else ""
-            if release_id and label and not label.replace("-", "").isdigit() and label != "Official":  # says nothing
-                labels[release_id] = label
+            # keep what tells editions apart (deluxe, bonus, Target ...), not format markers
+            parts = [part.strip() for part in label.split(",")
+                     if part.strip() and part.strip().casefold() not in ("explicit", "clean", "official")
+                     and not any(word in part.casefold() for word in ("bit", "khz"))
+                     and not part.strip().replace("-", "").isdigit()]
+            if release_id and parts:
+                labels[release_id] = ", ".join(parts)
     return labels
 
 
@@ -461,12 +466,21 @@ def on_this_day(connection, month_day):
 
 
 def releases(connection):
+    """All releases; `group_id` joins the editions of one album, `edition` names one
+    ("Target limited edition", "deluxe edition", ...) where the packages know it."""
     cover = "r.cover_file" if has_column(connection, "releases", "cover_file") else "NULL"
-    return [dict(row) for row in connection.execute(f"""
-        SELECT r.id, r.title, r.release_type, r.release_date, r.discography, {cover} AS cover_file,
-               count(rt.id) AS tracks
-        FROM releases r LEFT JOIN release_tracks rt ON rt.release_id = r.id
-        GROUP BY r.id ORDER BY r.discography, r.release_date, r.title""")]
+    labels = edition_labels()
+    rows = []
+    for row in connection.execute(f"""
+            SELECT r.id, r.title, r.release_type, r.release_date, r.discography, {cover} AS cover_file,
+                   count(rt.id) AS tracks, COALESCE(r.musicbrainz_release_group_id, 'release:' || r.id) AS group_id,
+                   r.musicbrainz_release_id
+            FROM releases r LEFT JOIN release_tracks rt ON rt.release_id = r.id
+            GROUP BY r.id ORDER BY r.discography, r.release_date, r.title"""):
+        item = dict(row)
+        item["edition"] = labels.get(item.pop("musicbrainz_release_id"))
+        rows.append(item)
+    return rows
 
 
 def release(connection, release_id):
@@ -485,4 +499,13 @@ def release(connection, release_id):
         track["play"] = play.get(track["version_id"])
     result["listen"] = listen_links(connection, [release_id])
     result["edition"] = edition_labels().get(result.get("musicbrainz_release_id"))
+    group = result.get("musicbrainz_release_group_id")
+    result["editions"] = [] if not group else [  # the other editions of this album
+        {"id": row["id"], "title": row["title"], "release_date": row["release_date"], "tracks": row["tracks"],
+         "edition": edition_labels().get(row["musicbrainz_release_id"])}
+        for row in connection.execute("""
+            SELECT r.id, r.title, r.release_date, r.musicbrainz_release_id,
+                   (SELECT count(*) FROM release_tracks t WHERE t.release_id = r.id) AS tracks
+            FROM releases r WHERE r.musicbrainz_release_group_id = ? AND r.id != ?
+            ORDER BY r.release_date, r.id""", (group, release_id))]
     return result
