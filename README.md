@@ -78,11 +78,23 @@ python -m unittest discover -s tests
 
 ## Local API
 
-The tracker serves JSON under `/api/`: `summary`, `songs`, `song/<id>`, `releases`,
-`release/<id>`, `artist/<id>`, `people`, `era/<id>`, `stats`, `timeline`,
-`on-this-day/<MM-DD>`, `profile`. Local-only: `audio/<file id>` (the owner's own files,
-HTTP range requests), `lyrics/<version id>`, `review`. A versioned `/api/v1` with a
-separate audio-provider layer is in progress.
+The tracker serves JSON under `/api/v1/` (all routes are defined once in
+`src/api_routes.py`; the older `/api/...` paths remain as aliases):
+
+| Endpoint | |
+|---|---|
+| `GET /api/v1/` | overview: version, mode (`local` / `static`), features, endpoints |
+| `summary`, `stats`, `timeline`, `profile` | totals, statistics, timeline, artist profile |
+| `songs`, `songs/<id>` | all songs; one song with versions, releases, credits, sources |
+| `releases`, `releases/<id>` | all releases; one release with its tracks |
+| `artists`, `artists/<id>` | most credited people; one person's songs and roles |
+| `eras`, `eras/<id>` | eras; one era with its releases and songs |
+| `on-this-day/<MM-DD>` | releases on that day in earlier years |
+| `stream/<file id>`, `lyrics/<version id>`, `review` | local server only |
+
+Each playable version carries its sources (`src/audio_providers.py`): Spotify and Apple Music
+track embeds, and, on the local server only, the owner's own files streamed with HTTP range
+requests. The static copy contains only the public routes and public providers.
 
 ## Project layout
 
