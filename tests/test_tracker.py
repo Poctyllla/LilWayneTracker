@@ -15,6 +15,7 @@ from pathlib import Path
 SRC_DIR = Path(__file__).resolve().parent.parent / "src"
 sys.path.insert(0, str(SRC_DIR))
 
+import audio_stream
 import database
 import tracker_data
 import tracker_server
@@ -201,14 +202,14 @@ class PlayerTests(unittest.TestCase):
             connection.close()
 
     def test_parse_range(self):
-        self.assertIsNone(tracker_server.parse_range(None, 100))
-        self.assertEqual(tracker_server.parse_range("bytes=0-", 100), (0, 99))
-        self.assertEqual(tracker_server.parse_range("bytes=10-19", 100), (10, 19))
-        self.assertEqual(tracker_server.parse_range("bytes=-30", 100), (70, 99))
-        self.assertEqual(tracker_server.parse_range("bytes=90-500", 100), (90, 99))
+        self.assertIsNone(audio_stream.parse_range(None, 100))
+        self.assertEqual(audio_stream.parse_range("bytes=0-", 100), (0, 99))
+        self.assertEqual(audio_stream.parse_range("bytes=10-19", 100), (10, 19))
+        self.assertEqual(audio_stream.parse_range("bytes=-30", 100), (70, 99))
+        self.assertEqual(audio_stream.parse_range("bytes=90-500", 100), (90, 99))
         for bad in ("bytes=100-", "bytes=5-2", "items=0-1", "bytes=-"):
             with self.assertRaises(ValueError):
-                tracker_server.parse_range(bad, 100)
+                audio_stream.parse_range(bad, 100)
 
     def test_audio_route(self):
         status, body = self.get(f"/api/audio/{self.file_id}")

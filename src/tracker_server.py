@@ -33,6 +33,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import audio_stream
 import genius_details
 import lyrics_source
 import review_queue
@@ -58,7 +59,6 @@ ROUTES = (
         c, genius_details.load_cache(), review_queue.load_decisions(decisions_file()))),
 )
 AUDIO_ROUTE = re.compile(r"^/api/audio/(\d+)$")
-CHUNK = 256 * 1024
 MAX_BODY = 10_000
 WRITE_LOCK = threading.Lock()
 
@@ -69,24 +69,6 @@ PROFILE_PATH = Path(__file__).resolve().parent.parent / "data" / "artist_profile
 def artist_profile():
     """data/artist_profile.json (artist_profile.py), or None."""
     return json.loads(PROFILE_PATH.read_text(encoding="utf-8")) if PROFILE_PATH.exists() else None
-
-
-def parse_range(header, size):
-    """(start, end) inclusive of one "bytes=a-b" range, None for no header,
-    ValueError when it cannot be satisfied."""
-    if not header:
-        return None
-    match = re.fullmatch(r"bytes=(\d*)-(\d*)", header.strip())
-    if not match or match.groups() == ("", ""):
-        raise ValueError("bad range")
-    first, last = match.groups()
-    if first == "":  # the last N bytes
-        start, end = max(size - int(last), 0), size - 1
-    else:
-        start, end = int(first), min(int(last), size - 1) if last else size - 1
-    if start > end or start >= size:
-        raise ValueError("range not satisfiable")
-    return start, end
 
 
 def decisions_file():
@@ -157,36 +139,7 @@ class Handler(BaseHTTPRequestHandler):
         if found is None:
             return self.send(404, b'{"error": "no such file"}', "application/json")
         path, kind = found
-        size = path.stat().st_size
-        try:
-            span = parse_range(self.headers.get("Range"), size)
-        except ValueError:
-            self.send_response(416)
-            self.send_header("Content-Range", f"bytes */{size}")
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-            return
-        start, end = span or (0, size - 1)
-        self.send_response(206 if span else 200)
-        self.send_header("Content-Type", kind)
-        self.send_header("Accept-Ranges", "bytes")
-        self.send_header("Content-Length", str(end - start + 1))
-        if span:
-            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        try:
-            with path.open("rb") as handle:
-                handle.seek(start)
-                left = end - start + 1
-                while left > 0:
-                    data = handle.read(min(CHUNK, left))
-                    if not data:
-                        break
-                    self.wfile.write(data)
-                    left -= len(data)
-        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
-            pass  # the player moved on (seek / next track)
+        audio_stream.send_file(self, path, kind)
 
     def static(self, path):
         name = "index.html" if path in ("/", "") else path.lstrip("/")

@@ -973,6 +973,28 @@ red, blue, green (light / dark variants, >= 4.5:1 on the surface) and "From
 the playing cover" (player.js: dominant colour of the cover -> accent with
 the lightness chosen for 4.5:1 contrast, plus a page tint).
 
+### Architecture migration (owner's approval, Nov 14, 2026)
+
+Goal: three components -- Catalog API, Audio Provider, Frontend / Player --
+in small steps, without a new database, new dependencies or behaviour
+changes (ideas from the Juice WRLD API: versioned resource routes, a source
+description per song instead of raw files, 206 range streaming; not taken:
+public file archive / ZIP downloads, path-based file URLs). Stages:
+0 contract tests, 1 audio_stream.py, 2 audio_providers.py (public flag),
+3 api_routes.py with /api/v1 + aliases, 4 web/api.js, 5 web/providers.js
+(one interface per provider), 6 /api/v1/versions/<id>/sources, 7 filters /
+pages / search, 8 more official providers.
+Done:
+- Stage 0: `tests/test_api_contract.py` calls every route of
+  `tracker_server.ROUTES` (plus POST /api/review and a Range request) on a
+  fixture database and compares the shape of each answer (keys and types)
+  with `tests/api_contract.json`; a route without a contract fails. After an
+  intended API change: `set LWT_UPDATE_CONTRACT=1` and run the test, then
+  review the snapshot diff.
+- Stage 1: `src/audio_stream.py` (`parse_range`, `send_file`: 200 / 206 /
+  416, chunked) moved out of `tracker_server.py` unchanged; the server only
+  decides which file may be streamed.
+
 ### GitHub (Nov 14, 2026)
 
 Public repository https://github.com/Poctyllla/LilWayneTracker -- code only
