@@ -1,0 +1,30 @@
+# Public repository: code only (owner's decision, Nov 14, 2026).
+
+# Python / IDE
+.venv/
+__pycache__/
+*.pyc
+.idea/
+
+# Catalogue data: the SQLite database (with paths of the owner's own music
+# library), backups, review files and source exports stay on this computer.
+data/
+*.db
+
+# API caches (Genius, Discogs, Spotify, iTunes, MusicBrainz): their terms do
+# not allow re-publishing.
+exports/
+
+# Static copy of the site (export_static.py)
+dist/
+
+# Cover art is copyrighted: only the CC BY 2.0 photo of Lil Wayne (Michael
+# Williams, Wikimedia Commons) used as the fallback image is kept.
+web/covers/*
+!web/covers/artist.jpg
+
+# Audio is never part of the project.
+*.mp3
+*.m4a
+*.flac
+*.wav

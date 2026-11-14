@@ -1,0 +1,958 @@
+"use strict";
+
+const STATUS = { released: "Released", leaked: "Leaked", unreleased: "Unreleased" };
+const VERSION_TYPES = {
+  album: "Main", remix: "Remix", demo: "Demo", snippet: "Snippet", original: "Original",
+  alternate: "Alternate", extended: "Extended", live: "Live", acapella: "Acapella",
+};
+const ROLES = {
+  main_artist: "Main artist", featured_artist: "Featured", producer: "Producer", co_producer: "Co-producer",
+  writer: "Writer", composer: "Composer", executive_producer: "Executive producer",
+  mixing_engineer: "Mixing", recording_engineer: "Recording", mastering_engineer: "Mastering",
+  engineer: "Engineer", vocals: "Vocals", additional_vocals: "Additional vocals", background_vocals: "Background vocals",
+  remixer: "Remixer",
+};
+const ROLE_ORDER = ["main_artist", "featured_artist", "producer", "co_producer", "writer", "composer"];
+const RELEASE_TYPES = {
+  studio_album: "Studio albums", collaboration_album: "Collaboration albums", group_album: "Group albums",
+  ep: "EPs", mixtape: "Mixtapes", single: "Singles", group_single: "Group singles", bootleg: "Bootlegs",
+};
+const PAGE = 50;  // songs rendered at a time; more load while scrolling
+const byTitle = (a, b) => a.title.localeCompare(b.title);
+const SORTS = {
+  date: (a, b) => (a.date || "9999").localeCompare(b.date || "9999") || byTitle(a, b),
+  title: byTitle,
+  versions: (a, b) => b.versions - a.versions || byTitle(a, b),
+  releases: (a, b) => b.releases - a.releases || byTitle(a, b),
+};
+
+const state = { songs: [], eras: [], eraById: new Map(), releases: [],
+                statuses: new Set(["released", "leaked", "unreleased"]), limit: PAGE, view: "list" };
+const $ = (id) => document.getElementById(id);
+
+function esc(text) {
+  return String(text ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function fold(text) {
+  return String(text ?? "").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[’'`]/g, "");
+}
+function duration(ms) {
+  if (!ms) return "";
+  const s = Math.round(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+// Simple monogram badges in each service's colour (no copied logos).
+const SERVICES = [  // also the display order
+  { test: /spotify\.com/, name: "Spotify", mono: "S", color: "#1DB954", ink: "#111" },
+  { test: /music\.apple\.com|itunes\.apple\.com/, name: "Apple Music", mono: "♫", color: "#FA243C" },
+  { test: /deezer\.com/, name: "Deezer", mono: "Dz", color: "#A238FF" },
+  { test: /tidal\.com/, name: "Tidal", mono: "T", color: "#000000" },
+  { test: /music\.youtube\.com/, name: "YouTube Music", mono: "▶", color: "#FF0000" },
+  { test: /youtube\.com|youtu\.be/, name: "YouTube", mono: "▶", color: "#CC0000" },
+  { test: /amazon\./, name: "Amazon Music", mono: "a", color: "#25D1DA", ink: "#111" },
+  { test: /soundcloud\.com/, name: "SoundCloud", mono: "SC", color: "#FF5500" },
+  { test: /instagram\.com/, name: "Instagram", mono: "IG", color: "#C13584" },
+  { test: /twitter\.com|x\.com/, name: "X (Twitter)", mono: "X", color: "#000000" },
+  { test: /facebook\.com/, name: "Facebook", mono: "f", color: "#1877F2" },
+  { test: /tiktok\.com/, name: "TikTok", mono: "♪", color: "#111111" },
+  { test: /allmusic\.com/, name: "AllMusic", mono: "AM", color: "#0B6EB5" },
+  { test: /imdb\.com/, name: "IMDb", mono: "IM", color: "#F5C518", ink: "#111" },
+  { test: /last\.fm/, name: "Last.fm", mono: "fm", color: "#D51007" },
+  { test: /setlist\.fm/, name: "setlist.fm", mono: "SL", color: "#5a5a5a" },
+  { test: /wikidata\.org/, name: "Wikidata", mono: "WD", color: "#006699" },
+  { test: /genius\.com/, name: "Genius", mono: "G", color: "#FFFF64", ink: "#111" },
+  { test: /musicbrainz\.org/, name: "MusicBrainz", mono: "MB", color: "#BA478F" },
+  { test: /discogs\.com/, name: "Discogs", mono: "D", color: "#333333" },
+  { test: /lilwaynehq\.com/, name: "LilWayneHQ", mono: "HQ", color: "#C9A227", ink: "#111" },
+  { test: /wikipedia\.org/, name: "Wikipedia", mono: "W", color: "#6B6B6B" },
+  { test: /coverartarchive\.org/, name: "Cover Art Archive", mono: "CA", color: "#7a5a3a" },
+];
+
+const NOTIFY_READ_KEY = "lwt-notify-read";  // day whose notifications were opened
+const STREAMING = new Set(["Spotify", "Apple Music", "Deezer", "Tidal", "YouTube Music", "YouTube", "Amazon Music", "SoundCloud"]);
+const isStreaming = (url) => STREAMING.has(serviceOf(url).name);
+
+function serviceOf(url) {
+  let host = "Link";
+  try { host = new URL(url).hostname.replace(/^www\./, ""); } catch (e) { /* not a full URL */ }
+  return SERVICES.find((s) => s.test.test(url)) || { name: host, mono: "↗", color: "#888" };
+}
+
+// One badge per service (links to the first URL); further URLs of that service under "+N".
+function serviceLinks(urls) {
+  const groups = new Map();
+  for (const url of new Set(urls.filter(Boolean))) {
+    const service = serviceOf(url);
+    if (!groups.has(service.name)) groups.set(service.name, { service, urls: [] });
+    groups.get(service.name).urls.push(url);
+  }
+  const order = SERVICES.map((s) => s.name);
+  const sorted = [...groups.values()].sort((a, b) =>
+    (order.indexOf(a.service.name) + 1 || 99) - (order.indexOf(b.service.name) + 1 || 99));
+  return sorted.length ? `<div class="services">${sorted.map(({ service, urls: list }) => {
+    const style = `--svc:${service.color};--ink:${service.ink || "#fff"}`;
+    const main = `<a class="svc" href="${esc(list[0])}" target="_blank" rel="noopener noreferrer" title="${esc(list[0])}"
+      style="${style}"><span class="mono">${esc(service.mono)}</span>${esc(service.name)}</a>`;
+    if (list.length === 1) return main;
+    return `<span class="svc-group">${main}<details class="svc-more"><summary title="More ${esc(service.name)} links">+${list.length - 1}</summary>
+      <div class="svc-list">${list.slice(1).map((u, i) => `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(service.name)} ${i + 2}</a>`).join("")}</div>
+      </details></span>`;
+  }).join("")}</div>` : "";
+}
+
+function badge(status) {
+  return `<span class="badge ${esc(status)}">${esc(STATUS[status] || status)}</span>`;
+}
+function plural(n, word) {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+// The published static copy (export_static.py) reads api/<path>.json files instead of the server.
+const STATIC = Boolean(window.LWT_STATIC);
+if (STATIC) document.querySelectorAll('[data-tab="review"]').forEach((el) => el.remove());
+
+async function getJSON(url) {
+  const response = await fetch(STATIC ? `${url.replace(/^\/api\//, "api/")}.json` : url);
+  if (!response.ok) throw new Error(`${url}: ${response.status}`);
+  return response.json();
+}
+
+/* ---------- songs ---------- */
+
+function filteredSongs() {
+  const query = fold($("search").value.trim());
+  const era = $("era").value, kind = $("kind").value, vtype = $("vtype").value;
+  return state.songs.filter((song) => {
+    if (kind === "own" && song.guest) return false;
+    if (kind === "guest" && !song.guest) return false;
+    if (era && String(song.era ?? "none") !== era) return false;
+    if (vtype && !song.types.includes(vtype)) return false;
+    if (query) {
+      const haystack = fold([song.title, song.artist, ...song.aliases, ...song.producers].join(" "));
+      if (!haystack.includes(query)) return false;
+    }
+    return true;
+  });
+}
+
+
+function eraSummary(era) {
+  if (!era.summary) return "";
+  const credit = era.summary_url
+    ? ` <a class="src" href="${esc(era.summary_url)}" target="_blank" rel="noopener noreferrer" title="Text from Wikipedia, CC BY-SA">Wikipedia</a>` : "";
+  return `<p class="era-summary">${esc(era.summary)}${credit}</p>`;
+}
+
+function eraOf(song) {
+  return state.eraById.get(song.era) || null;
+}
+
+// The era's album cover; a song without an era (or an era without a cover) shows
+// the photo of Lil Wayne from the About page (Wikimedia Commons, CC BY 2.0).
+function coverImg(era, size) {
+  const file = era && era.cover_file ? era.cover_file : "artist.jpg";
+  return `<img class="cover ${size}" src="covers/${esc(file)}" alt="" loading="lazy">`;
+}
+
+// The cover of the release a song came out on; the era's album cover otherwise.
+function songCover(song, size) {
+  return song.cover
+    ? `<img class="cover ${size}" src="covers/${esc(song.cover)}" alt="" loading="lazy">`
+    : coverImg(eraOf(song), size);
+}
+
+function songMeta(song) {
+  return `${song.guest || song.artist !== "Lil Wayne" ? `<div class="artist">${esc(song.artist)}</div>` : ""}
+    ${song.aliases.length ? `<div class="alias">also: ${esc(song.aliases.slice(0, 3).join(", "))}</div>` : ""}
+    ${song.producers.length ? `<div class="artist">prod. ${esc(song.producers.slice(0, 3).join(", "))}${song.producers.length > 3 ? "…" : ""}</div>` : ""}`;
+}
+
+const VIEWS = {
+  list: (songs) => `<table class="rows">${songs.map((song) => {
+    const era = eraOf(song);
+    return `<tr data-id="${song.id}">
+      <td class="thumb">${songCover(song, "small")}</td>
+      <td><div class="title">${esc(song.title)}</div>${songMeta(song)}${playButton(song.play, `data-play-song="${song.id}"`)}</td>
+      <td class="era-cell">${song.album ? `<a class="album-link" href="#/release/${song.album.id}" title="Album / project">${esc(song.album.title)}</a>`
+        : `<span class="muted">No release</span>`}
+        <div class="era-line">${era ? `<a href="#/era/${era.id}">${esc(era.name)} era</a>` : "No era"}</div></td>
+      <td class="types">${song.types.map((t) => `<span class="tag">${esc(VERSION_TYPES[t] || t)}</span>`).join("")}</td>
+      <td>${badge(song.status)}</td>
+      <td class="date">${esc(fmtDate(song.date))}</td>
+      <td class="file">${song.file ? "♪ file" : ""}</td></tr>`;
+  }).join("")}</table>`,
+  grid: (songs) => `<div class="grid">${songs.map((song) => {
+    const era = eraOf(song);
+    return `<a class="card" href="#/song/${song.id}">${songCover(song, "card-cover")}
+      <div class="card-body"><div class="title">${esc(song.title)}</div>
+        ${song.guest || song.artist !== "Lil Wayne" ? `<div class="artist">${esc(song.artist)}</div>` : ""}
+        <div class="card-foot">${badge(song.status)}<span class="date">${esc((song.date || "").slice(0, 4))}</span>
+          ${song.file ? `<span class="file">♪</span>` : ""}</div>
+        <div class="card-album" title="Album / project">${song.album ? esc(song.album.title) : "No release"}</div>
+        <div class="artist">${esc(era ? `${era.name} era` : "No era")}</div>
+        ${playButton(song.play, `data-play-song="${song.id}"`)}</div></a>`;
+  }).join("")}</div>`,
+  compact: (songs) => `<table class="rows compact">${songs.map((song) => {
+    const era = eraOf(song);
+    return `<tr data-id="${song.id}"><td class="play-cell">${playButton(song.play, `data-play-song="${song.id}"`, "")}</td><td class="title">${esc(song.title)}</td>
+      <td class="artist">${song.guest || song.artist !== "Lil Wayne" ? esc(song.artist) : ""}</td>
+      <td class="artist">${song.album ? esc(song.album.title) : ""}</td>
+      <td class="artist">${esc(era ? `${era.name} era` : "")}</td>
+      <td><span class="dot ${esc(song.status)}" title="${esc(STATUS[song.status])}"></span></td>
+      <td class="date">${esc(fmtDate(song.date))}</td><td class="file">${song.file ? "♪" : ""}</td></tr>`;
+  }).join("")}</table>`,
+};
+
+function renderSongs() {
+  const base = filteredSongs();
+  for (const chip of document.querySelectorAll(".chip")) {
+    chip.querySelector("span").textContent = base.filter((s) => s.status === chip.dataset.status).length;
+  }
+  const songs = base.filter((s) => state.statuses.has(s.status)).sort(SORTS[$("sort").value] || SORTS.date);
+  $("shown").textContent = `Showing ${plural(songs.length, "song")}`;
+  state.shown = songs;
+  state.limit = PAGE;
+  $("song-list").innerHTML = (VIEWS[state.view] || VIEWS.list)(songs.slice(0, PAGE));
+  requestAnimationFrame(fillViewport);
+}
+
+// Infinite scroll: the next PAGE songs are appended when the end of the list comes into view.
+function appendSongs() {
+  if (!state.shown || state.limit >= state.shown.length || $("songs-view").hidden) return;
+  const chunk = state.shown.slice(state.limit, state.limit + PAGE);
+  state.limit += chunk.length;
+  const holder = document.createElement("div");
+  holder.innerHTML = (VIEWS[state.view] || VIEWS.list)(chunk);
+  const target = $("song-list").firstElementChild;
+  const items = holder.firstElementChild.querySelectorAll(":scope > tbody > tr, :scope > tr, :scope > a");
+  const body = target.tBodies ? target.tBodies[0] || target : target;
+  for (const item of items) body.appendChild(item);
+}
+// The observer fires only when the end of the list *enters* the view; when it is
+// still in view after a chunk (tall window, short rows) keep filling.
+function fillViewport() {
+  if ($("songs-view").hidden || !state.shown || state.limit >= state.shown.length) return;
+  if ($("song-sentinel").getBoundingClientRect().top < window.innerHeight + 600) {
+    appendSongs();
+    requestAnimationFrame(fillViewport);
+  }
+}
+new IntersectionObserver((entries) => {
+  if (entries.some((e) => e.isIntersecting)) fillViewport();
+}, { rootMargin: "600px" }).observe($("song-sentinel"));
+
+const VIEW_LABELS = { list: "☰ List", grid: "▦ Grid", compact: "≡ Compact" };
+
+function showViewChoice() {
+  document.querySelectorAll("#view-switch button").forEach((b) => b.classList.toggle("on", b.dataset.view === state.view));
+  $("view-button").textContent = VIEW_LABELS[state.view];
+}
+
+function setView(view) {
+  state.view = VIEWS[view] ? view : "list";
+  showViewChoice();
+  $("view-menu").open = false;
+  try { localStorage.setItem("lwt-view", state.view); } catch (e) { /* storage unavailable */ }
+  renderSongs();
+}
+
+function updateFilterCount() {
+  const active = [$("era").value, $("kind").value !== "own" ? "x" : "", $("vtype").value, $("sort").value !== "date" ? "x" : ""]
+    .filter(Boolean).length;
+  $("filter-count").textContent = active ? `(${active})` : "";
+}
+
+async function openSong(id) {
+  const song = await getJSON(`/api/song/${id}`);
+  state.song = song;
+  const main = song.versions.find((v) => v.version_type === "album" && playable(v.play)) || song.versions.find((v) => playable(v.play));
+  const versions = song.versions.map((version) => `
+    <div class="version">
+      <div class="head"><strong>${esc(version.version_name || VERSION_TYPES[version.version_type] || "Version")}</strong>
+        <span class="tag">${esc(VERSION_TYPES[version.version_type] || version.version_type || "")}</span>
+        ${badge(version.availability)} ${version.files ? `<span class="file">♪ ${plural(version.files, "file")}</span>` : ""}
+        ${playButton(version.play, `data-play-version="${version.id}"`, "Play")}
+        ${(version.links || []).map((l) => `<a class="mini-listen" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer"
+          title="${esc(l.url)}" style="--svc:${serviceOf(l.url).color}">▶ ${esc(serviceOf(l.url).name)}</a>`).join("")}</div>
+      ${version.first_known_date ? `<div class="track">Known since ${esc(version.first_known_date)}</div>` : ""}
+      ${version.tracks.map((t) => `<div class="track"><a href="#/release/${t.release_id}">${esc(t.release)}</a>
+        (${esc(t.release_date || "?")}${t.discography === "unofficial" ? ", bootleg" : ""}) — track ${t.disc_number > 1 ? `${t.disc_number}-` : ""}${t.track_number}
+        ${t.track_title && t.track_title !== song.title ? `“${esc(t.track_title)}”` : ""} ${duration(t.duration_ms)}</div>`).join("")}
+    </div>`).join("") || `<p class="muted">No versions yet: this song is known from sources only.</p>`;
+  const roles = Object.keys(song.credits).sort((a, b) => {
+    const ia = ROLE_ORDER.indexOf(a), ib = ROLE_ORDER.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+  });
+  const roleName = (role) => ROLES[role] || role.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+  // One entry per person and role; versions are named only when the credit is not on the song itself.
+  const credits = roles.map((role) => {
+    const people = new Map();
+    for (const c of song.credits[role]) {
+      const entry = people.get(c.id) || { id: c.id, name: c.name, song: false, versions: new Set(), sources: new Set() };
+      if (c.version) entry.versions.add(c.version); else entry.song = true;
+      if (c.source) entry.sources.add(c.source);
+      people.set(c.id, entry);
+    }
+    return `<dt>${esc(roleName(role))}</dt><dd>${[...people.values()].map((p) =>
+      `<a href="#/artist/${p.id}">${esc(p.name)}</a>`
+      + (!p.song && p.versions.size ? ` <span class="src">(${esc([...p.versions].join(", "))})</span>` : "")
+      + (p.sources.size ? ` <span class="src">${esc([...p.sources].join(", "))}</span>` : "")).join(", ")}</dd>`;
+  }).join("");
+  const urls = [];
+  if (song.musicbrainz_recording_id) urls.push(`https://musicbrainz.org/recording/${song.musicbrainz_recording_id}`);
+  for (const source of song.sources) if (source.url) urls.push(source.url);
+  // "Listen on" holds the players; a Discogs release page is a source.
+  const isSource = (url) => /discogs\.com/.test(url);
+  urls.push(...song.listen.map((l) => l.url).filter(isSource));
+  song.listen = song.listen.filter((l) => !isSource(l.url));
+  const listed = state.songs.find((s) => s.id === song.id) || {};
+  const headCover = song.cover_file ? `<img class="cover big" src="covers/${esc(song.cover_file)}" alt="">`
+    : coverImg(eraOf(listed), "big");
+  $("panel-body").innerHTML = `
+    <div class="panel-head">${headCover}<div>
+      <h2>${esc(song.title)}</h2>
+      <div class="muted"><a href="#/artist/${song.artist_id}">${esc(song.artist)}</a>${song.appearance === "guest" ? " · guest appearance" : ""}
+        · ${listed.era ? `<a href="#/era/${listed.era}">${esc(song.era)}</a>` : esc(song.era || "no era")} ${badge(song.availability)}</div>
+      ${song.aliases.length ? `<p class="muted">Also known as: ${esc(song.aliases.join(", "))}</p>` : ""}
+      ${main ? `<div class="head-play">${playButton(main.play, `data-play-version="${main.id}"`)}</div>` : ""}
+      ${song.listen.length ? `<div class="listen">${serviceLinks(song.listen.map((l) => l.url))}</div>` : ""}
+      ${lyricsLink(song)}
+    </div></div>
+    <h3>Versions</h3>${compareVersions(song)}${versions}
+    <h3>Credits</h3>${credits ? `<dl class="credits">${credits}</dl>` : `<p class="muted">No credits yet.</p>`}
+    <h3>Sources</h3>${serviceLinks(urls) || `<p class="muted">No links.</p>`}`;
+  showPanel();
+}
+
+// Lyrics stay on Genius (they are copyrighted): only a link to the song page there.
+function lyricsLink(song) {
+  const url = (song.sources.find((s) => /genius\.com\/.+-lyrics/.test(s.url || "")) || {}).url;
+  return url ? `<a class="lyrics" href="${esc(url)}" target="_blank" rel="noopener noreferrer">✎ Lyrics on Genius</a>` : "";
+}
+
+// All versions side by side: type, status, first appearance, lengths, releases, files.
+function compareVersions(song) {
+  if (song.versions.length < 2) return "";
+  const rows = song.versions.map((v) => {
+    const dates = v.tracks.map((t) => t.release_date).filter(Boolean).sort();
+    const lengths = v.tracks.map((t) => t.duration_ms).filter(Boolean);
+    const length = lengths.length ? (Math.min(...lengths) === Math.max(...lengths) ? duration(lengths[0])
+      : `${duration(Math.min(...lengths))}–${duration(Math.max(...lengths))}`) : "";
+    return `<tr><td>${esc(v.version_name || VERSION_TYPES[v.version_type] || "")}</td>
+      <td>${esc(VERSION_TYPES[v.version_type] || v.version_type || "")}</td><td>${badge(v.availability)}</td>
+      <td>${esc(dates[0] || v.first_known_date || "")}</td><td>${length}</td>
+      <td>${v.tracks.length || ""}</td><td>${v.files || ""}</td></tr>`;
+  }).join("");
+  return `<details class="table-view compare"><summary>Compare ${song.versions.length} versions</summary>
+    <table><thead><tr><th>Version</th><th>Type</th><th>Status</th><th>First</th><th>Length</th><th>Releases</th>
+    <th>Files</th></tr></thead><tbody>${rows}</tbody></table></details>`;
+}
+
+/* ---------- releases ---------- */
+
+function renderReleases() {
+  const query = fold($("release-search").value.trim());
+  const discography = $("discography").value;
+  const list = state.releases.filter((r) => r.discography === discography && (!query || fold(r.title).includes(query)));
+  const groups = new Map();
+  for (const release of list) {
+    if (!groups.has(release.release_type)) groups.set(release.release_type, []);
+    groups.get(release.release_type).push(release);
+  }
+  const order = Object.keys(RELEASE_TYPES);
+  $("release-list").innerHTML = [...groups.entries()]
+    .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
+    .map(([type, items]) => `<div class="group"><h2>${esc(RELEASE_TYPES[type] || type)} (${items.length})</h2>
+      ${items.map((r) => `<div class="release-row" data-release="${r.id}"><span class="release-name">
+        ${r.cover_file ? `<img class="cover small" src="covers/${esc(r.cover_file)}" alt="" loading="lazy">`
+          : `<img class="cover small" src="covers/artist.jpg" alt="" loading="lazy">`}${esc(r.title)}</span>
+        <span class="muted">${esc(r.release_date || "?")} · ${plural(r.tracks, "track")}</span></div>`).join("")}</div>`).join("")
+    || `<p class="muted">Nothing found.</p>`;
+}
+
+async function openRelease(id) {
+  const release = await getJSON(`/api/release/${id}`);
+  state.release = release;
+  const anyPlayable = release.tracks.some((t) => playable(t.play));
+  const urls = release.listen.map((l) => l.url);
+  if (release.musicbrainz_release_id) urls.push(`https://musicbrainz.org/release/${release.musicbrainz_release_id}`);
+  // Music services under the title, reference sources (MusicBrainz, Discogs, ...) below the track list.
+  const streaming = urls.filter(isStreaming);
+  const sources = urls.filter((url) => !isStreaming(url));
+  $("panel-body").innerHTML = `
+    <div class="panel-head">${release.cover_file ? `<img class="cover big" src="covers/${esc(release.cover_file)}" alt="">`
+      : `<img class="cover big" src="covers/artist.jpg" alt="" loading="lazy">`}<div>
+      <h2>${esc(release.title)}</h2>
+      <div class="muted">${esc(RELEASE_TYPES[release.release_type] || release.release_type)} · ${esc(release.release_date || "?")}
+        ${release.label ? ` · ${esc(release.label)}` : ""} · ${release.discography === "official" ? "official" : "unofficial"}</div>
+      ${anyPlayable ? `<div class="head-play"><button type="button" class="play-btn" data-play-release="">▶ Play all</button></div>` : ""}
+      ${streaming.length ? `<div class="listen">${serviceLinks(streaming)}</div>` : ""}</div></div>
+    <h3>Track list</h3>
+    <table class="rows">${release.tracks.map((t) => `<tr data-id="${t.recording_id}">
+      <td class="play-cell">${playButton(t.play, `data-play-release="${t.version_id}"`, "")}</td>
+      <td class="date">${t.disc_number > 1 ? `${t.disc_number}-` : ""}${t.track_number}</td>
+      <td><span class="title">${esc(t.title)}</span>
+        ${t.version_type && t.version_type !== "album" ? `<span class="tag">${esc(VERSION_TYPES[t.version_type] || t.version_type)}</span>` : ""}</td>
+      <td class="date">${duration(t.duration_ms)}</td><td class="file">${t.file ? "♪" : ""}</td></tr>`).join("")}</table>
+    ${sources.length ? `<h3>Sources</h3>${serviceLinks(sources)}` : ""}`;
+  showPanel();
+}
+
+/* ---------- wiring ---------- */
+
+async function init() {
+  const [summary, songs, releases, people] = await Promise.all([
+    getJSON("/api/summary"), getJSON("/api/songs"), getJSON("/api/releases"), getJSON("/api/people")]);
+  state.songs = songs;
+  state.eras = summary.eras;
+  state.eraById = new Map(summary.eras.map((e) => [e.id, e]));
+  state.releases = releases;
+  state.people = people;
+  try { state.view = loadSettings().view || localStorage.getItem("lwt-view") || "list"; } catch (e) { state.view = "list"; }
+  if (loadSettings().kind) $("kind").value = loadSettings().kind;
+  loadToday().catch(() => { $("notify-body").textContent = "Could not load today's items."; });
+  const asked = new URLSearchParams(location.search).get("view");  // ?view=grid
+  if (VIEWS[asked]) state.view = asked;
+  showViewChoice();
+  const c = summary.counts;
+  $("totals").textContent = `${c.songs} songs · ${c.guest_songs} guest appearances · ${c.versions} versions · `
+    + `${c.releases} releases · ${c.credits} credits · ${c.files} local files`;
+  $("era").insertAdjacentHTML("beforeend", summary.eras.map((e) => `<option value="${e.id}">${esc(e.name)}</option>`).join("")
+    + `<option value="none">No era</option>`);
+  const types = [...new Set(songs.flatMap((s) => s.types))].sort();
+  $("vtype").insertAdjacentHTML("beforeend", types.map((t) => `<option value="${esc(t)}">${esc(VERSION_TYPES[t] || t)}</option>`).join(""));
+  refreshChips();
+  renderSongs();
+  renderReleases();
+  renderPeople();
+  renderEraGrid();
+}
+
+/* ---------- chip groups: a <select data-chips> shown as pill buttons (the select stays the source of truth) ---------- */
+function refreshChips(root = document) {
+  for (const select of root.querySelectorAll("select[data-chips]")) {
+    let group = select.nextElementSibling;
+    if (!group || !group.classList.contains("seg")) {
+      group = document.createElement("div");
+      group.className = "seg";
+      group.setAttribute("role", "radiogroup");
+      select.after(group);
+      select.hidden = true;
+      group.addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-value]");
+        if (!button || button.dataset.value === select.value) return;
+        select.value = button.dataset.value;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      select.addEventListener("change", () => refreshChips(select.parentElement));
+    }
+    group.innerHTML = [...select.options].map((option) => {
+      const on = option.value === select.value;
+      const color = option.dataset.color;
+      const swatch = color ? `<span class="swatch${color === "cover" ? " cover" : ""}"${color === "cover" ? "" : ` style="background:${esc(color)}"`}></span>` : "";
+      return `<button type="button" role="radio" aria-checked="${on}" class="${on ? "on" : ""}" data-value="${esc(option.value)}">${swatch}${esc(option.textContent)}</button>`;
+    }).join("");
+  }
+}
+
+let timer;
+const resetAndRender = () => { updateFilterCount(); renderSongs(); };
+$("search").addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(resetAndRender, 150); });
+for (const id of ["era", "kind", "vtype", "sort"]) $(id).addEventListener("change", resetAndRender);
+$("reset-filters").addEventListener("click", () => {
+  $("era").value = ""; $("kind").value = "own"; $("vtype").value = ""; $("sort").value = "date";
+  refreshChips($("filter-menu"));
+  resetAndRender();
+});
+document.addEventListener("click", (event) => {  // close open menus on an outside click
+  for (const menu of document.querySelectorAll("details.menu[open]")) {
+    if (!menu.contains(event.target)) menu.open = false;
+  }
+});
+$("status-filter").addEventListener("click", (event) => {
+  const chip = event.target.closest(".chip");
+  if (!chip) return;
+  chip.classList.toggle("on");
+  if (chip.classList.contains("on")) state.statuses.add(chip.dataset.status);
+  else state.statuses.delete(chip.dataset.status);
+  resetAndRender();
+});
+$("view-switch").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-view]");
+  if (button) setView(button.dataset.view);
+});
+$("release-search").addEventListener("input", renderReleases);
+$("discography").addEventListener("change", renderReleases);
+$("people-search").addEventListener("input", renderPeople);
+
+/* ---------- people ---------- */
+
+function roleName(role) {
+  return ROLES[role] || role.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+}
+
+function renderPeople() {
+  const query = fold($("people-search").value.trim());
+  const list = state.people.filter((p) => !query || fold(p.name).includes(query));
+  $("people-list").innerHTML = `<div class="group">${list.map((p) => `
+    <a class="release-row" href="#/artist/${p.id}"><span>${esc(p.name)}</span>
+      <span class="muted">${plural(p.songs, "song")}${p.years && p.years.length ? ` · ${p.years[0] === p.years[1] ? esc(p.years[0])
+        : `${esc(p.years[0])}–${esc(p.years[1])}`}` : ""} · ${esc(p.roles.slice(0, 4).map(roleName).join(", "))}</span></a>`).join("")
+    || `<p class="muted">Nothing found.</p>`}</div>`;
+}
+
+// Songs with this person per year of first appearance (the song list's dates).
+function collabByYear(person) {
+  const byId = new Map(state.songs.map((s) => [s.id, s]));
+  const years = {};
+  for (const song of person.songs) {
+    const year = ((byId.get(song.id) || {}).date || "").slice(0, 4);
+    if (year) years[year] = (years[year] || 0) + 1;
+  }
+  const rows = Object.keys(years).sort().map((y) => ({ label: y, value: years[y] }));
+  return rows.length > 1 ? simpleBars("Songs with Lil Wayne by year", rows) : "";
+}
+
+async function openArtist(id) {
+  const person = await getJSON(`/api/artist/${id}`);
+  const roles = Object.entries(person.roles).sort((a, b) => b[1] - a[1])
+    .map(([role, n]) => `<span class="tag">${esc(roleName(role))} ${n}</span>`).join("");
+  $("panel-body").innerHTML = `
+    <h2>${esc(person.name)}</h2>
+    <div class="muted">${plural(person.songs.length, "song")} in the catalogue</div>
+    <div>${roles}</div>
+    ${collabByYear(person)}
+    <h3>Songs</h3>
+    <table class="rows">${person.songs.map((s) => `<tr data-id="${s.id}">
+      <td><div class="title">${esc(s.title)}</div>
+        ${s.guest || s.artist !== "Lil Wayne" ? `<div class="artist">${esc(s.artist)}</div>` : ""}
+        <div>${s.roles.map((r) => `<span class="tag">${esc(roleName(r))}</span>`).join("")}</div></td>
+      <td class="date">${esc(s.era || "")}</td><td>${badge(s.status)}</td></tr>`).join("")}</table>`;
+  showPanel();
+}
+
+/* ---------- charts (HTML bars; colours validated with the dataviz palette validator) ---------- */
+
+const STATUS_SERIES = [
+  { key: "released", label: "Released", color: "var(--released)" },
+  { key: "leaked", label: "Leaked", color: "var(--leaked)" },
+  { key: "unreleased", label: "Unreleased", color: "var(--unreleased)" },
+];
+
+function legend(series, totals) {
+  return `<div class="legend">${series.map((s) => `<span class="legend-item"><span class="swatch" style="background:${s.color}"></span>
+    ${esc(s.label)}${totals ? ` <span class="muted">${totals[s.key].toLocaleString()}</span>` : ""}</span>`).join("")}</div>`;
+}
+
+// Horizontal stacked bars: rows = [{label, href, values: {key: n}}].
+function stackedBars(title, rows, series) {
+  const max = Math.max(1, ...rows.map((r) => series.reduce((sum, s) => sum + (r.values[s.key] || 0), 0)));
+  const totals = Object.fromEntries(series.map((s) => [s.key, rows.reduce((sum, r) => sum + (r.values[s.key] || 0), 0)]));
+  const body = rows.map((r) => {
+    const total = series.reduce((sum, s) => sum + (r.values[s.key] || 0), 0);
+    const tip = [r.label, ...series.map((s) => `${s.label}: ${r.values[s.key] || 0}`)].join("|");
+    const label = r.href ? `<a href="${r.href}">${esc(r.label)}</a>` : esc(r.label);
+    return `<div class="bar-row" data-tip="${esc(tip)}"><div class="bar-label">${label}</div>
+      <div class="bar-track"><div class="bar-stack" style="width:${(total / max) * 100}%">${series.filter((s) => r.values[s.key])
+        .map((s) => `<span class="seg" style="flex:${r.values[s.key]};background:${s.color}"></span>`).join("")}</div>
+        <span class="bar-value">${total.toLocaleString()}</span></div></div>`;
+  }).join("");
+  const table = `<details class="table-view"><summary>Table</summary><table><thead><tr><th></th>${series.map((s) =>
+    `<th>${esc(s.label)}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(r.label)}</td>${series.map((s) =>
+    `<td>${(r.values[s.key] || 0).toLocaleString()}</td>`).join("")}</tr>`).join("")}</tbody></table></details>`;
+  return `<section class="chart"><h3>${esc(title)}</h3>${legend(series, totals)}${body}${table}</section>`;
+}
+
+// One series: rows = [{label, href, value}] -- the title names it, so no legend.
+function simpleBars(title, rows) {
+  const max = Math.max(1, ...rows.map((r) => r.value));
+  return `<section class="chart"><h3>${esc(title)}</h3>${rows.map((r) => `<div class="bar-row" data-tip="${esc(`${r.label}|${r.value} songs`)}">
+    <div class="bar-label">${r.href ? `<a href="${r.href}">${esc(r.label)}</a>` : esc(r.label)}</div>
+    <div class="bar-track"><div class="bar-stack" style="width:${(r.value / max) * 100}%"><span class="seg" style="flex:1;background:var(--accent)"></span></div>
+    <span class="bar-value">${r.value.toLocaleString()}</span></div></div>`).join("")}</section>`;
+}
+
+const tooltip = document.createElement("div");
+tooltip.className = "tooltip";
+tooltip.hidden = true;
+document.body.appendChild(tooltip);
+document.addEventListener("mousemove", (event) => {
+  const row = event.target.closest("[data-tip]");
+  if (!row) { tooltip.hidden = true; return; }
+  const [head, ...lines] = row.dataset.tip.split("|");
+  tooltip.innerHTML = `<strong>${esc(head)}</strong>${lines.map((l) => `<div>${esc(l)}</div>`).join("")}`;
+  tooltip.hidden = false;
+  const x = Math.min(event.clientX + 14, window.innerWidth - tooltip.offsetWidth - 8);
+  tooltip.style.left = `${x}px`;
+  tooltip.style.top = `${event.clientY + 14}px`;
+});
+
+/* ---------- about Lil Wayne ---------- */
+
+async function renderAbout() {
+  const p = await getJSON("/api/profile");
+  const own = state.songs.filter((s) => !s.guest);
+  const born = p.born ? new Date(`${p.born}T12:00:00`).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) : "";
+  const number = (n, label) => `<div class="number"><strong>${n.toLocaleString()}</strong><span>${esc(label)}</span></div>`;
+  const group = (title, links) => links && links.length ? `<h3>${esc(title)}</h3>${serviceLinks(links.map((l) => l.url))}` : "";
+  const photo = p.photo ? `<figure class="about-photo"><img src="covers/${esc(p.photo.file)}" alt="Lil Wayne performing">
+    <figcaption>Photo: ${esc(p.photo.author || "unknown")}, ${esc(p.photo.licence || "")} —
+      <a href="${esc(p.photo.page)}" target="_blank" rel="noopener noreferrer">Wikimedia Commons</a></figcaption></figure>` : "";
+  $("about").innerHTML = `<div class="about"><div class="about-hero">${photo}<div>
+    <h2>${esc(p.name)}</h2>
+    <div class="facts">Dwayne Michael Carter Jr.${born ? ` · born ${esc(born)}` : ""}${p.origin ? ` · ${esc(p.origin)}` : ""}</div>
+    <p class="summary">${esc(p.summary || "")}${p.summary_url ? ` <a class="src" href="${esc(p.summary_url)}" target="_blank"
+      rel="noopener noreferrer" title="Text from Wikipedia, CC BY-SA">Wikipedia</a>` : ""}</p>
+    <div class="numbers">${number(own.length, "songs in the tracker")}${number(own.filter((s) => s.status === "released").length, "released")}
+      ${number(own.filter((s) => s.status === "leaked").length, "leaked")}${number(state.songs.length - own.length, "guest appearances")}
+      ${number(state.eras.length, "eras")}</div>
+    ${group("Follow", p.links.social)}${group("Listen", p.links.listen)}</div></div>
+    <h3>Eras</h3><div class="era-strip">${state.eras.filter((e) => e.cover_file).map((e) =>
+      `<a href="#/era/${e.id}" title="${esc(e.name)}"><img src="covers/${esc(e.cover_file)}" alt="${esc(e.name)}" loading="lazy"></a>`).join("")}</div>
+    ${group("Websites", p.links.official)}${group("More about Lil Wayne", [...p.links.reference, { url: p.musicbrainz }])}</div>`;
+  state.aboutLoaded = true;
+}
+
+/* ---------- eras ---------- */
+
+function renderEraGrid() {
+  $("era-grid").innerHTML = state.eras.map((era) => {
+    const songs = state.songs.filter((s) => s.era === era.id && !s.guest);
+    const counts = STATUS_SERIES.map((s) => [s, songs.filter((x) => x.status === s.key).length]);
+    return `<a class="era-card" href="#/era/${era.id}">${coverImg(era, "card-cover")}
+      <div class="card-body"><div class="title">${esc(era.name)}</div>
+        <div class="artist">${esc(era.start_date || "…")} – ${esc(era.end_date || "today")}</div>
+        <div class="era-counts">${counts.map(([s, n]) => `<span class="badge ${s.key}">${n}</span>`).join("")}</div></div></a>`;
+  }).join("");
+}
+
+async function openEra(id) {
+  const era = await getJSON(`/api/era/${id}`);
+  const own = era.songs.filter((s) => !s.guest);
+  const counts = Object.fromEntries(STATUS_SERIES.map((s) => [s.key, own.filter((x) => x.status === s.key).length]));
+  const releaseCards = era.releases.map((r) => `<a class="mini-card" href="#/release/${r.id}">
+    ${r.cover_file ? `<img class="cover small" src="covers/${esc(r.cover_file)}" alt="" loading="lazy">`
+      : `<img class="cover small" src="covers/artist.jpg" alt="" loading="lazy">`}
+    <span><span class="title">${esc(r.title)}</span><br><span class="muted">${esc((RELEASE_TYPES[r.release_type] || r.release_type).replace(/s$/, ""))} · ${esc(r.release_date)}</span></span></a>`).join("");
+  const people = (list) => list.map((p) => `<a href="#/artist/${p.id}">${esc(p.name)}</a> <span class="muted">${p.songs}</span>`).join(" · ");
+  const songList = (status) => own.filter((s) => s.status === status)
+    .map((s) => `<a href="#/song/${s.id}">${esc(s.title)}</a>`).join(" · ");
+  $("era-detail").innerHTML = `
+    <a class="back" href="#/eras">← All eras</a>
+    <div class="era-hero">${coverImg(era, "hero")}<div>
+      <h2>${esc(era.name)}</h2>
+      <div class="muted">${esc(era.start_date || "…")} – ${esc(era.end_date || "today")} · ${plural(own.length, "song")}
+        · ${plural(era.songs.length - own.length, "guest appearance")}</div>
+      ${eraSummary(era)}
+      ${stackedBars("Songs of this era", [{ label: era.name, values: counts }], STATUS_SERIES)}
+    </div></div>
+    ${era.releases.length ? `<h3>Official releases of the period</h3><div class="mini-grid">${releaseCards}</div>` : ""}
+    ${era.producers.length ? `<h3>Producers</h3><p>${people(era.producers)}</p>` : ""}
+    ${era.featured.length ? `<h3>Featured artists</h3><p>${people(era.featured)}</p>` : ""}
+    ${STATUS_SERIES.map((s) => counts[s.key] ? `<h3><span class="badge ${s.key}">${s.label}</span> ${counts[s.key]}</h3>
+      <p class="song-cloud">${songList(s.key)}</p>` : "").join("")}`;
+  $("era-grid").hidden = true;
+  $("era-detail").hidden = false;
+  window.scrollTo({ top: 0 });
+}
+
+/* ---------- statistics ---------- */
+
+async function renderStats() {
+  const data = await getJSON("/api/stats");
+  const eraRows = data.by_era.map((e) => ({ label: e.name, href: `#/era/${e.id}`, values: e }));
+  const yearRows = data.by_year.map((y) => ({ label: y.year, values: y }));
+  const top = (list) => list.map((p) => ({ label: p.name, href: `#/artist/${p.id}`, value: p.songs }));
+  const versions = Object.entries(data.versions).map(([type, n]) => ({ label: VERSION_TYPES[type] || type, value: n }));
+  $("stats").innerHTML = `<div class="stats-grid">
+    ${stackedBars("Lil Wayne songs by era", eraRows, STATUS_SERIES)}
+    ${stackedBars("Songs by year of first appearance", yearRows, STATUS_SERIES.slice(0, 2))}
+    ${simpleBars("Most credited producers", top(data.producers))}
+    ${simpleBars("Most frequent featured artists", top(data.featured))}
+    ${simpleBars("Most credited writers", top(data.writers))}
+    ${simpleBars("Versions besides the main one", versions)}</div>`;
+  state.statsLoaded = true;
+}
+
+/* ---------- CSV export of the songs shown ---------- */
+
+function exportCsv() {
+  const songs = filteredSongs().filter((s) => state.statuses.has(s.status)).sort(SORTS[$("sort").value] || SORTS.date);
+  const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const header = ["id", "title", "artist", "guest", "era", "status", "first date", "versions", "version types",
+                  "releases", "producers", "also known as", "local file"];
+  const rows = songs.map((s) => [s.id, s.title, s.artist, s.guest ? "yes" : "", (eraOf(s) || {}).name || "", s.status,
+    s.date || "", s.versions, s.types.join("; "), s.releases, s.producers.join("; "), s.aliases.join("; "), s.file ? "yes" : ""]);
+  const csv = "﻿" + [header, ...rows].map((r) => r.map(cell).join(",")).join("\r\n");
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  link.download = `lil-wayne-tracker-songs-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+$("export-csv").addEventListener("click", exportCsv);
+
+/* ---------- review ---------- */
+
+function candidateCard(c, button) {
+  const tracks = c.tracks.map((t) => `${esc(t.release)} (${esc(t.date || "?")}${t.discography === "unofficial" ? ", bootleg" : ""})`
+    + `${t.duration_ms ? ` ${duration(t.duration_ms)}` : ""}${t.type && t.type !== "album" ? ` [${esc(t.type)}]` : ""}`).join("; ");
+  return `<div class="candidate">
+    <div><a href="#/song/${c.id}"><strong>${esc(c.title)}</strong></a> <span class="muted">#${c.id} · ${esc(c.artist)}</span> ${badge(c.status)}</div>
+    ${c.artists.length ? `<div class="track">Credited: ${esc(c.artists.join(", "))}</div>` : ""}
+    <div class="track">${tracks || "no release"}</div>
+    ${button}</div>`;
+}
+
+function reviewCard(item) {
+  const key = esc(item.key);
+  if (item.kind === "guest") {
+    const facts = [
+      item.lengths.length ? `MusicBrainz length ${item.lengths.map(duration).join(", ")}` : "",
+      item.genius_albums.length ? `Genius album: ${esc(item.genius_albums.join(", "))}` : "",
+      item.hq_projects.length ? `HQ project: ${esc(item.hq_projects.join(", "))}` : "",
+      `sources: ${esc(item.sources)}`].filter(Boolean).join(" · ");
+    return `<div class="review-card" data-key="${key}">
+      <div class="review-q">Is <strong>${esc(item.title)}</strong> by <strong>${esc(item.main_artist)}</strong> one of these songs?</div>
+      <div class="track">${facts}</div>
+      ${serviceLinks(item.links)}
+      ${item.candidates.map((c) => candidateCard(c,
+        `<button class="act" data-action="guest_same" data-recording="${c.id}">Same song</button>`)).join("")}
+      <div class="actions"><button class="act" data-action="guest_different">Different song — add as guest appearance</button>
+        <button class="act ghost" data-action="skip">Skip</button></div></div>`;
+  }
+  if (item.kind === "spread") {
+    const tracks = item.tracks.map((t) => `<div class="track">${esc(t.release)} (${esc(t.date || "?")}${t.discography === "unofficial"
+      ? ", bootleg" : ""}) ${duration(t.duration_ms)}${t.track_title && t.track_title !== item.title ? ` “${esc(t.track_title)}”` : ""}
+      ${item.early_releases.includes(t.release_id) ? `<span class="tag">earlier bootleg</span>` : ""}</div>`).join("");
+    return `<div class="review-card" data-key="${key}">
+      <div class="review-q">Is <a href="#/song/${item.recording.id}"><strong>${esc(item.title)}</strong></a> on these releases
+        one song? The bootleg copy is years older than the official release.</div>
+      ${tracks}
+      <div class="actions"><button class="act ghost" data-action="skip">Same song</button>
+        <button class="act" data-action="split_off">Different songs — split the earlier bootleg off</button></div></div>`;
+  }
+  return `<div class="review-card" data-key="${key}">
+    <div class="review-q"><strong>${esc(item.title)}</strong> — a ${esc(VERSION_TYPES[item.version_type] || item.version_type)}
+      version (“${esc(item.version_name)}”). Which song is it a version of?</div>
+    ${item.recording ? candidateCard(item.recording, "") : ""}
+    ${item.candidates.map((c) => candidateCard(c,
+      `<button class="act" data-action="make_version" data-of="${c.id}">Version of this song</button>`)).join("")}
+    <div class="actions"><button class="act" data-action="keep_separate">None — keep it as its own song</button>
+      <button class="act ghost" data-action="skip">Skip</button></div></div>`;
+}
+
+function renderReview() {
+  const kind = $("review-kind").value;
+  const items = (state.review || []).filter((i) => !kind || i.kind === kind);
+  $("review-count").textContent = state.review ? `(${state.review.length})` : "";
+  $("review-list").innerHTML = items.map(reviewCard).join("") || `<p class="muted">Nothing to review.</p>`;
+}
+
+async function loadReview() {
+  state.review = await getJSON("/api/review");
+  renderReview();
+}
+
+$("review-kind").addEventListener("change", renderReview);
+$("review-list").addEventListener("click", async (event) => {
+  const button = event.target.closest("button.act");
+  if (!button) return;
+  const card = button.closest(".review-card");
+  const decision = { key: card.dataset.key, action: button.dataset.action };
+  if (button.dataset.recording) decision.recording = Number(button.dataset.recording);
+  if (button.dataset.of) decision.of = Number(button.dataset.of);
+  card.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+  const response = await fetch("/api/review", { method: "POST", headers: { "Content-Type": "application/json" },
+                                                body: JSON.stringify(decision) });
+  if (response.ok) {
+    state.review = state.review.filter((i) => i.key !== decision.key);
+    card.outerHTML = `<p class="muted saved">Saved: ${esc(decision.action.replace(/_/g, " "))} — ${esc(decision.key.split(":")[1])}</p>`;
+    $("review-count").textContent = `(${state.review.length})`;
+  } else {
+    const error = await response.json().catch(() => ({}));
+    card.querySelectorAll("button").forEach((b) => { b.disabled = false; });
+    alert(`Not saved: ${error.error || response.status}`);
+  }
+});
+
+/* ---------- routing (#/songs, #/song/12, #/release/8, #/artist/45 ...) ---------- */
+
+const SECTION_NAMES = { about: "About Lil Wayne", songs: "Songs", eras: "Eras", timeline: "Timeline", releases: "Releases",
+                        people: "People", stats: "Statistics", review: "Needs review" };
+
+function setDrawer(open) {
+  $("drawer").hidden = !open;
+  $("drawer-backdrop").hidden = !open;
+  $("menu-open").setAttribute("aria-expanded", String(open));
+}
+
+function showTab(name) {
+  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
+  $("section-name").textContent = SECTION_NAMES[name] || "";
+  setDrawer(false);
+  for (const view of Object.keys(SECTION_NAMES)) $(`${view}-view`).hidden = view !== name;
+  state.tab = name;
+  if (name === "stats" && !state.statsLoaded) renderStats().catch((e) => { $("stats").textContent = e.message; });
+  if (name === "about" && !state.aboutLoaded) renderAbout().catch((e) => { $("about").textContent = e.message; });
+  if (name === "timeline" && !state.timeline) renderTimeline().catch((e) => { $("timeline").textContent = e.message; });
+  if (name === "review" && !state.review) loadReview().catch((e) => { $("review-list").textContent = e.message; });
+}
+
+async function route() {
+  const [, kind, id] = (location.hash.match(/^#\/(\w+)(?:\/(\d+))?/) || []);
+  if (kind in SECTION_NAMES) showTab(kind);
+  if (kind === "eras") { $("era-grid").hidden = false; $("era-detail").hidden = true; }
+  try {
+    if (kind === "era" && id) { showTab("eras"); $("panel").hidden = true; await openEra(id); }
+    else if (kind === "song" && id) await openSong(id);
+    else if (kind === "release" && id) await openRelease(id);
+    else if (kind === "artist" && id) await openArtist(id);
+    else $("panel").hidden = true;
+  } catch (error) {
+    $("panel-body").innerHTML = `<p class="muted">Not found (${esc(error.message)}).</p>`;
+    showPanel();
+  }
+}
+
+// Details (song, release, person) open in a centred window over the page.
+function showPanel() {
+  $("panel").hidden = false;
+  $("panel").querySelector(".panel").scrollTop = 0;
+}
+
+function closePanel() {
+  location.hash = `#/${state.tab || "songs"}`;
+}
+$("panel").addEventListener("click", (event) => { if (event.target === $("panel")) closePanel(); });
+
+document.addEventListener("click", (event) => {
+  if (event.target.closest("a[href^='#/']")) return; // normal links change the hash
+  const release = event.target.closest("[data-release]");
+  const row = event.target.closest("tr[data-id]");
+  if (release) { event.preventDefault(); location.hash = `#/release/${release.dataset.release}`; }
+  else if (row) location.hash = `#/song/${row.dataset.id}`;
+});
+$("close").addEventListener("click", closePanel);
+document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !$("panel").hidden) closePanel(); });
+$("menu-open").addEventListener("click", () => setDrawer(true));
+$("menu-close").addEventListener("click", () => setDrawer(false));
+$("drawer-backdrop").addEventListener("click", () => setDrawer(false));
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") setDrawer(false); });
+/* ---------- notifications: on this day, random song, open questions ---------- */
+
+async function loadToday() {
+  const now = new Date();
+  const monthDay = `${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const items = await getJSON(`/api/on-this-day/${monthDay}`);
+  state.today = items;
+  state.todayKey = `${now.getFullYear()}-${monthDay}`;
+  let read = false;
+  try { read = localStorage.getItem(NOTIFY_READ_KEY) === state.todayKey; } catch (e) { /* storage unavailable */ }
+  $("notify-count").hidden = !items.length || read;
+  $("notify-count").textContent = items.length;
+  const years = (date) => now.getFullYear() - Number(date.slice(0, 4));
+  $("notify-body").innerHTML = (items.length ? `<p class="muted">On this day</p>` + items.map((r) =>
+    `<a class="mini-card" href="#/release/${r.id}">${r.cover_file ? `<img class="cover small" src="covers/${esc(r.cover_file)}" alt="">`
+      : `<img class="cover small" src="covers/artist.jpg" alt="" loading="lazy">`}
+      <span><span class="title">${esc(r.title)}</span><br><span class="muted">${years(r.release_date)} years ago ·
+      ${esc(fmtDate(r.release_date))}${r.discography === "unofficial" ? " · bootleg" : ""}</span></span></a>`).join("")
+    : `<p class="muted">Nothing was released on ${esc(now.toLocaleDateString("en-US", { month: "long", day: "numeric" }))}.</p>`)
+    + `<p class="muted review-line"><a href="#/review">Open questions in “Needs review”</a></p>`;
+}
+
+// Opening the popover marks today's notifications as read (the badge stays off until the next day).
+function setNotify(open) {
+  $("notify-panel").hidden = !open;
+  $("notifications").setAttribute("aria-expanded", String(open));
+  if (open) {
+    $("notify-count").hidden = true;
+    try { if (state.todayKey) localStorage.setItem(NOTIFY_READ_KEY, state.todayKey); } catch (e) { /* storage unavailable */ }
+  }
+}
+$("notifications").addEventListener("click", (event) => { event.stopPropagation(); setNotify($("notify-panel").hidden); });
+document.addEventListener("click", (event) => {
+  if (!$("notify-panel").hidden && !$("notify-panel").contains(event.target)) setNotify(false);
+});
+$("random-song").addEventListener("click", () => {
+  const pool = state.songs.filter((s) => !s.guest);
+  location.hash = `#/song/${pool[Math.floor(Math.random() * pool.length)].id}`;
+  setNotify(false);
+});
+
+/* ---------- settings (this browser only) ---------- */
+
+const SETTINGS_KEY = "lwt-settings";
+function loadSettings() {
+  try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch (e) { return {}; }
+}
+const ACCENTS = ["purple", "gold", "red", "blue", "green", "cover"];
+function applySettings(settings) {
+  if (settings.theme) document.documentElement.dataset.theme = settings.theme;
+  else delete document.documentElement.dataset.theme;
+  document.documentElement.dataset.accent = ACCENTS.includes(settings.accent) ? settings.accent : "purple";
+  if (window.updateCoverAccent) window.updateCoverAccent();  // player.js: colours of the playing cover
+  state.dateStyle = settings.dates || "iso";
+}
+function fmtDate(date) {
+  if (!date || state.dateStyle !== "long" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return date || "";
+  return new Date(`${date}T12:00:00`).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+}
+$("settings").addEventListener("click", () => {
+  const s = loadSettings();
+  $("set-theme").value = s.theme || "";
+  $("set-view").value = s.view || state.view;
+  $("set-kind").value = s.kind || "own";
+  $("set-dates").value = s.dates || "iso";
+  $("set-player").value = s.player || "spotify";
+  $("set-accent").value = ACCENTS.includes(s.accent) ? s.accent : "purple";
+  refreshChips($("settings-dialog"));
+  showPane("appearance");
+  $("settings-dialog").showModal();
+});
+function showPane(name) {
+  for (const button of document.querySelectorAll(".settings-nav [data-pane]")) button.classList.toggle("on", button.dataset.pane === name);
+  for (const pane of document.querySelectorAll(".settings-body .pane")) pane.hidden = pane.dataset.pane !== name;
+}
+document.querySelector(".settings-nav").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-pane]");
+  if (button) showPane(button.dataset.pane);
+});
+// Theme and colours change at once (a preview); everything is saved on "Done".
+for (const id of ["set-theme", "set-accent"]) {
+  $(id).addEventListener("change", () => applySettings({ ...loadSettings(), theme: $("set-theme").value, accent: $("set-accent").value }));
+}
+$("settings-dialog").addEventListener("close", () => {
+  const s = { theme: $("set-theme").value, view: $("set-view").value, kind: $("set-kind").value, dates: $("set-dates").value,
+              player: $("set-player").value, accent: $("set-accent").value };
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch (e) { /* storage unavailable */ }
+  applySettings(s);
+  setView(s.view);
+  $("kind").value = s.kind;
+  refreshChips($("filter-menu"));
+  resetAndRender();
+  if (!$("timeline-view").hidden) renderTimeline();
+});
+applySettings(loadSettings());
+
+/* ---------- timeline ---------- */
+
+async function renderTimeline() {
+  state.timeline = state.timeline || await getJSON("/api/timeline");
+  $("timeline").innerHTML = `<div class="timeline">${state.timeline.map((y) => `
+    <section class="year"><div class="year-label">${esc(y.year)}</div><div class="year-body">
+      ${y.eras.map((e) => `<a class="era-mark" href="#/era/${e.id}">◆ ${esc(e.name)} era ends · ${esc(fmtDate(e.date))}</a>`).join("")}
+      <div class="mini-grid">${y.releases.map((r) => `<a class="mini-card" href="#/release/${r.id}">
+        ${r.cover_file ? `<img class="cover small" src="covers/${esc(r.cover_file)}" alt="" loading="lazy">`
+          : `<img class="cover small" src="covers/artist.jpg" alt="" loading="lazy">`}
+        <span><span class="title">${esc(r.title)}</span><br><span class="muted">${esc((RELEASE_TYPES[r.type] || r.type).replace(/s$/, ""))}
+          · ${esc(fmtDate(r.date))}</span></span></a>`).join("")}</div>
+      ${y.bootlegs ? `<details class="table-view"><summary>${plural(y.bootlegs, "bootleg")} (leaks)</summary><div class="mini-grid">${
+        y.bootleg_list.map((b) => `<a class="mini-card" href="#/release/${b.id}">${b.cover_file
+          ? `<img class="cover small" src="covers/${esc(b.cover_file)}" alt="" loading="lazy">` : ""}<span>${esc(b.title)}</span></a>`).join("")}</div></details>` : ""}
+      ${y.first_known ? `<p class="muted">${plural(y.first_known, "unreleased version")} first known this year</p>` : ""}
+    </div></section>`).join("")}</div>`;
+}
+window.addEventListener("scroll", () => { $("to-top").hidden = window.scrollY < 500; }, { passive: true });
+$("to-top").addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
+window.addEventListener("hashchange", route);
+init().then(route).catch((error) => { $("totals").textContent = `Could not load the catalogue: ${error.message}`; });

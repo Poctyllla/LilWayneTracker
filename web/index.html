@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lil Wayne Tracker</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="top-left">
+    <button class="icon-button" id="menu-open" title="Menu" aria-label="Open menu" aria-controls="drawer" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </button>
+    <a class="brand" href="#/songs"><h1>Lil Wayne Tracker</h1><span class="section" id="section-name">Songs</span></a>
+  </div>
+  <div class="top-actions">
+    <button class="icon-button" id="notifications" title="Today: on this day, random song, open questions" aria-label="Notifications" aria-controls="notify-panel" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2Z"/></svg>
+      <span class="dot-count" id="notify-count" hidden></span>
+    </button>
+    <button class="icon-button" id="settings" title="Settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.5 7.5 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.5 7.5 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.5 7.5 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.5 7.5 0 0 0 1.7-1l2.5 1 2-3.5L19.4 13ZM13 15.5A3.5 3.5 0 1 1 13 8.5a3.5 3.5 0 0 1 0 7Z" transform="translate(-1 0)"/></svg>
+    </button>
+  </div>
+</header>
+
+<div class="popover" id="notify-panel" hidden>
+  <div class="popover-head"><strong>Today</strong><button class="act ghost" id="random-song">🎲 Random song</button></div>
+  <div id="notify-body"><p class="muted">Loading…</p></div>
+</div>
+
+<dialog id="settings-dialog" aria-labelledby="settings-title">
+  <form method="dialog" class="settings">
+    <nav class="settings-nav" aria-label="Settings sections">
+      <h2 id="settings-title">Settings</h2>
+      <button type="button" class="on" data-pane="appearance">Appearance</button>
+      <button type="button" data-pane="songs">Songs</button>
+      <button type="button" data-pane="player">Player</button>
+      <button type="button" data-pane="about">About</button>
+      <a class="gh-link" id="github-link" href="https://github.com/Poctyllla/LilWayneTracker" target="_blank" rel="noopener noreferrer">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.83 1.23.83.72 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.65-.89-3.65-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        Project on GitHub</a>
+    </nav>
+    <div class="settings-body">
+      <section class="pane" data-pane="appearance">
+        <h3>Appearance</h3>
+        <div class="field"><span>Theme</span><select id="set-theme" data-chips><option value="">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div>
+        <div class="field"><span>Colours</span><select id="set-accent" data-chips>
+          <option value="purple" data-color="#9a6ad6">Purple</option>
+          <option value="gold" data-color="#d9a826">Gold</option>
+          <option value="red" data-color="#e0574c">Red</option>
+          <option value="blue" data-color="#4d8fe6">Blue</option>
+          <option value="green" data-color="#4fae5a">Green</option>
+          <option value="cover" data-color="cover">From the playing cover</option>
+        </select>
+        <p class="muted hint">“From the playing cover” tints the page and the accent colour with the cover of the song in the player.</p></div>
+      </section>
+      <section class="pane" data-pane="songs" hidden>
+        <h3>Songs</h3>
+        <div class="field"><span>Default view</span><select id="set-view" data-chips><option value="list">List</option><option value="grid">Grid</option><option value="compact">Compact</option></select></div>
+        <div class="field"><span>Songs shown at start</span><select id="set-kind" data-chips><option value="own">Lil Wayne songs</option><option value="guest">Guest appearances</option><option value="all">All songs</option></select></div>
+        <div class="field"><span>Dates</span><select id="set-dates" data-chips><option value="iso">2008-06-10</option><option value="long">June 10, 2008</option></select></div>
+      </section>
+      <section class="pane" data-pane="player" hidden>
+        <h3>Player</h3>
+        <div class="field"><span>Play with</span><select id="set-player" data-chips><option value="spotify">Spotify</option><option value="apple">Apple Music</option><option value="file">Local files (this computer)</option></select>
+        <p class="muted hint">Spotify plays whole songs when you are signed in to Spotify in this browser, 30-second previews otherwise. When a song is not on the chosen service, the next one is used.</p></div>
+      </section>
+      <section class="pane" data-pane="about" hidden>
+        <h3>About</h3>
+        <p>Lil Wayne Tracker: a personal, non-commercial catalogue of Lil Wayne's music: releases, songs, versions, credits and eras.</p>
+        <p class="muted">Metadata from MusicBrainz, Genius, Discogs, LilWayneHQ, Wikipedia (CC BY-SA) and the Cover Art Archive. Not affiliated with Lil Wayne, Young Money or Cash Money. No audio is hosted on this site.</p>
+      </section>
+      <div class="actions"><span class="muted">Saved in this browser only.</span><button class="act" value="save">Done</button></div>
+    </div>
+  </form>
+</dialog>
+
+<div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+<nav class="drawer" id="drawer" aria-label="Sections" hidden>
+  <div class="drawer-head"><strong>Lil Wayne Tracker</strong>
+    <button class="icon-button" id="menu-close" aria-label="Close menu">×</button></div>
+  <a class="tab" data-tab="about" href="#/about">About Lil Wayne</a>
+  <a class="tab" data-tab="songs" href="#/songs">Songs</a>
+  <a class="tab" data-tab="eras" href="#/eras">Eras</a>
+  <a class="tab" data-tab="timeline" href="#/timeline">Timeline</a>
+  <a class="tab" data-tab="releases" href="#/releases">Releases</a>
+  <a class="tab" data-tab="people" href="#/people">People</a>
+  <a class="tab" data-tab="stats" href="#/stats">Statistics</a>
+  <a class="tab" data-tab="review" href="#/review">Needs review <span id="review-count"></span></a>
+</nav>
+
+<main>
+  <section id="songs-view">
+    <div class="filters">
+      <input id="search" type="search" placeholder="Search: title, artist, producer, alternate title…" autocomplete="off">
+      <details class="menu" id="filter-menu">
+        <summary class="menu-button">Filters <span id="filter-count"></span></summary>
+        <div class="menu-panel">
+          <div class="field"><span>Era</span><select id="era"><option value="">All eras</option></select></div>
+          <div class="field"><span>Songs</span><select id="kind" data-chips>
+            <option value="own">Lil Wayne songs</option>
+            <option value="guest">Guest appearances</option>
+            <option value="all">All songs</option>
+          </select></div>
+          <div class="field"><span>Versions</span><select id="vtype" data-chips><option value="">Any version</option></select></div>
+          <div class="field"><span>Sort</span><select id="sort" data-chips>
+            <option value="date">Date</option>
+            <option value="title">Title</option>
+            <option value="versions">Most versions</option>
+            <option value="releases">Most releases</option>
+          </select></div>
+          <button type="button" class="act ghost" id="reset-filters">Reset</button>
+        </div>
+      </details>
+      <button type="button" class="menu-button plain" id="export-csv" title="Download the songs shown as a CSV file">⤓ CSV</button>
+      <details class="menu" id="view-menu">
+        <summary class="menu-button" id="view-button">☰ List</summary>
+        <div class="menu-panel narrow" id="view-switch">
+          <button data-view="list">☰ List</button>
+          <button data-view="grid">▦ Grid</button>
+          <button data-view="compact">≡ Compact</button>
+        </div>
+      </details>
+    </div>
+    <div class="status-filter" id="status-filter">
+      <button class="chip on" data-status="released">Released <span></span></button>
+      <button class="chip on" data-status="leaked">Leaked <span></span></button>
+      <button class="chip on" data-status="unreleased">Unreleased <span></span></button>
+    </div>
+    <p id="shown" class="muted"></p>
+    <div id="song-list"></div>
+    <div id="song-sentinel" aria-hidden="true"></div>
+  </section>
+
+  <section id="about-view" hidden><div id="about"></div></section>
+
+  <section id="timeline-view" hidden><div id="timeline"></div></section>
+
+  <section id="eras-view" hidden>
+    <div id="era-grid" class="era-grid"></div>
+    <div id="era-detail" hidden></div>
+  </section>
+
+  <section id="stats-view" hidden>
+    <div id="stats"></div>
+  </section>
+
+  <section id="releases-view" hidden>
+    <div class="filters">
+      <input id="release-search" type="search" placeholder="Search releases…" autocomplete="off">
+      <select id="discography">
+        <option value="official">Official discography</option>
+        <option value="unofficial">Unofficial (bootlegs)</option>
+      </select>
+    </div>
+    <div id="release-list"></div>
+  </section>
+
+  <section id="people-view" hidden>
+    <div class="filters">
+      <input id="people-search" type="search" placeholder="Search producers, writers, featured artists…" autocomplete="off">
+    </div>
+    <p class="muted">The most credited people across the catalogue. Click a name for all of their songs.</p>
+    <div id="people-list"></div>
+  </section>
+
+  <section id="review-view" hidden>
+    <p class="muted">Open questions the tools could not settle. Your answers are saved to
+      <code>data/song_review_decisions.json</code> only; they reach the database when
+      <code>song_review.py --apply</code> runs (after a backup).</p>
+    <div class="filters">
+      <select id="review-kind">
+        <option value="">All questions</option>
+        <option value="guest">Guest song or catalogued song?</option>
+        <option value="split">Which song is this a version of?</option>
+        <option value="spread">Same title, years apart: one song?</option>
+      </select>
+    </div>
+    <div id="review-list"></div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <p id="totals" class="muted">Loading…</p>
+  <p>Lil Wayne Tracker — a personal, non-commercial catalogue project, 2026.
+    Metadata from MusicBrainz, Genius, Discogs, LilWayneHQ, Wikipedia (CC BY-SA) and the Cover Art Archive;
+    streaming links lead to the official services.</p>
+  <p class="muted">Not affiliated with Lil Wayne, Young Money or Cash Money. No audio is hosted on this site.</p>
+</footer>
+
+<button class="to-top" id="to-top" title="Back to top" aria-label="Back to top" hidden>
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5l-7 7 1.4 1.4L11 8.8V20h2V8.8l4.6 4.6L19 12z"/></svg>
+</button>
+
+<div id="panel" class="modal-backdrop" hidden>
+  <aside class="panel" role="dialog" aria-modal="true" aria-label="Details">
+    <button id="close" class="close" aria-label="Close">×</button>
+    <div id="panel-body"></div>
+  </aside>
+</div>
+
+<div class="player-bar" id="player" hidden>
+  <button class="pl-meta" id="pl-expand" title="Open the player">
+    <img class="cover small" id="pl-cover" src="covers/artist.jpg" alt="">
+    <span class="pl-text"><span class="title" id="pl-title"></span><span class="muted" id="pl-artist"></span></span>
+  </button>
+  <div class="pl-center">
+    <div class="pl-controls">
+      <button class="pl-btn mode" data-pl="shuffle" title="Shuffle" aria-label="Shuffle" aria-pressed="false">🔀</button>
+      <button class="pl-btn" data-pl="prev" title="Previous" aria-label="Previous">⏮</button>
+      <button class="pl-btn main" data-pl="toggle" title="Play / pause" aria-label="Play or pause">▶</button>
+      <button class="pl-btn" data-pl="next" title="Next" aria-label="Next">⏭</button>
+      <button class="pl-btn mode" data-pl="repeat" title="Repeat: off" aria-label="Repeat: off">🔁</button>
+    </div>
+    <div class="pl-progress"><span class="pl-time" data-pl-time>0:00</span>
+      <input type="range" class="pl-seek" min="0" max="1000" value="0" aria-label="Position">
+      <span class="pl-time" data-pl-duration>0:00</span></div>
+  </div>
+  <div class="pl-right">
+    <div class="pl-volume"><button class="pl-btn small" data-pl="mute" title="Mute" aria-label="Mute">🔊</button>
+      <input type="range" class="pl-vol" min="0" max="100" value="80" aria-label="Volume"></div>
+    <button class="pl-btn small" id="pl-queue-open" title="Queue" aria-label="Open the queue">☰</button>
+    <button class="pl-btn small" id="pl-lyrics-open" title="Lyrics" aria-label="Open the lyrics">❝</button>
+    <button class="pl-btn small" id="pl-stop" title="Close the player" aria-label="Close the player">×</button>
+  </div>
+</div>
+
+<div class="player-full" id="player-full" role="dialog" aria-modal="true" aria-label="Player" aria-hidden="true">
+  <div class="pf-bg" id="pf-bg"></div>
+  <div class="pf-box">
+    <button class="close" id="pf-close" aria-label="Minimise the player">⌄</button>
+    <div class="pf-main">
+      <img class="pf-cover" id="pf-cover" src="covers/artist.jpg" alt="">
+      <h2 id="pf-title"></h2>
+      <div class="muted" id="pf-artist"></div>
+      <div class="pf-hint" id="pf-hint" hidden></div>
+      <div class="pf-embed" id="pf-embed"><div id="pf-spotify"></div><div id="pf-apple"></div></div>
+      <div class="pl-progress"><span class="pl-time" data-pl-time>0:00</span>
+      <input type="range" class="pl-seek" min="0" max="1000" value="0" aria-label="Position">
+      <span class="pl-time" data-pl-duration>0:00</span></div>
+      <div class="pl-controls big">
+      <button class="pl-btn mode" data-pl="shuffle" title="Shuffle" aria-label="Shuffle" aria-pressed="false">🔀</button>
+      <button class="pl-btn" data-pl="prev" title="Previous" aria-label="Previous">⏮</button>
+      <button class="pl-btn main" data-pl="toggle" title="Play / pause" aria-label="Play or pause">▶</button>
+      <button class="pl-btn" data-pl="next" title="Next" aria-label="Next">⏭</button>
+      <button class="pl-btn mode" data-pl="repeat" title="Repeat: off" aria-label="Repeat: off">🔁</button>
+    </div>
+      <div class="pl-volume"><button class="pl-btn small" data-pl="mute" title="Mute" aria-label="Mute">🔊</button>
+      <input type="range" class="pl-vol" min="0" max="100" value="80" aria-label="Volume"></div>
+      <div class="pf-source"><span class="pl-source" data-pl-source></span></div>
+    </div>
+    <div class="pf-side">
+      <div class="pf-tabs" role="tablist">
+        <button role="tab" data-side="queue" aria-selected="true">Up next</button>
+        <button role="tab" data-side="lyrics" aria-selected="false" id="pf-lyrics-tab">Lyrics</button>
+        <button class="act ghost pf-clear" id="pf-clear" title="Remove the songs after the current one">Clear</button>
+      </div>
+      <ol class="pf-queue" id="pf-queue"></ol>
+      <div class="pf-lyrics" id="pf-lyrics" hidden></div>
+    </div>
+  </div>
+</div>
+<audio id="pl-audio" preload="none"></audio>
+
+<script src="app.js"></script>
+<script src="player.js"></script>
+</body>
+</html>

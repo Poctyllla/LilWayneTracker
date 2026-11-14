@@ -1,0 +1,2 @@
+# Reading tags and durations of the user's local audio files (library_scanner.py).
+mutagen>=1.48
