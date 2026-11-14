@@ -956,3 +956,50 @@ window.addEventListener("scroll", () => { $("to-top").hidden = window.scrollY < 
 $("to-top").addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
 window.addEventListener("hashchange", route);
 init().then(route).catch((error) => { $("totals").textContent = `Could not load the catalogue: ${error.message}`; });
+
+/* ---------- covers full screen (click a big cover; click, × or Esc closes) ---------- */
+const ZOOMABLE = ".panel-head img.cover.big, img.cover.hero, #pf-cover";
+function setLightbox(src, alt = "") {
+  $("lightbox").hidden = !src;
+  if (src) { $("lightbox-img").src = src; $("lightbox-img").alt = alt; $("lightbox-close").focus(); }
+}
+
+// Our covers are small (250 px).  For a MusicBrainz release the Cover Art Archive has
+// a 1200 px front: release first, then its release group; the local copy stays otherwise.
+async function largeCover(src) {
+  const match = src.match(/covers\/(release|era)_(\d+)\.jpg/);
+  if (!match) return [];
+  const data = await getJSON(`/api/${match[1]}/${match[2]}`).catch(() => null);
+  if (!data) return [];
+  const urls = [];
+  if (data.musicbrainz_release_id) urls.push(`https://coverartarchive.org/release/${data.musicbrainz_release_id}/front-1200`);
+  if (data.musicbrainz_release_group_id) urls.push(`https://coverartarchive.org/release-group/${data.musicbrainz_release_group_id}/front-1200`);
+  return urls;
+}
+async function zoomCover(src, alt) {
+  setLightbox(src, alt);
+  for (const url of await largeCover(src)) {
+    const ok = await new Promise((resolve) => {
+      const probe = new Image();
+      probe.onload = () => resolve(true);
+      probe.onerror = () => resolve(false);
+      probe.src = url;
+    });
+    if (ok) {
+      if (!$("lightbox").hidden && $("lightbox-img").src === new URL(src, location.href).href) $("lightbox-img").src = url;
+      return;
+    }
+  }
+}
+document.addEventListener("click", (event) => {
+  const image = event.target.closest(ZOOMABLE);
+  if (image && image.getAttribute("src")) {
+    event.stopPropagation();
+    const title = image.closest(".panel-head, .era-hero, .pf-box")?.querySelector("h2")?.textContent || "";
+    zoomCover(image.src, title ? `Cover: ${title}` : "Cover");
+  }
+}, true);
+$("lightbox").addEventListener("click", () => setLightbox(null));
+document.addEventListener("keydown", (event) => {  // before the other Esc handlers (window / player)
+  if (event.key === "Escape" && !$("lightbox").hidden) { event.stopImmediatePropagation(); setLightbox(null); }
+}, true);

@@ -542,3 +542,11 @@ dialog#settings-dialog { width: min(720px, calc(100vw - 32px)); padding: 0; over
   .settings-nav h2 { width: 100%; }
   .gh-link { margin-top: 0; }
 }
+
+/* cover full screen */
+.panel-head img.cover.big, img.cover.hero, #pf-cover { cursor: zoom-in; }
+.lightbox { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
+            padding: 24px; background: rgba(0,0,0,.88); cursor: zoom-out; }
+.lightbox img { max-width: min(92vw, 1200px); max-height: 90vh; object-fit: contain; border-radius: 8px;
+                box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+.lightbox .close { color: #f4f2ee; font-size: 30px; top: 14px; right: 20px; }
