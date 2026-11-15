@@ -508,8 +508,8 @@ select:hover, select:focus-visible { border-color: var(--accent); outline: none;
 #reset-filters { justify-self: start; border-radius: 999px; }
 
 /* ---------- settings: sections on the left, options on the right ---------- */
-dialog#settings-dialog { width: min(720px, calc(100vw - 32px)); padding: 0; overflow: hidden; }
-.settings { display: grid; grid-template-columns: 190px minmax(0, 1fr); min-height: 420px; }
+dialog#settings-dialog { width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 0; overflow: hidden; }
+.settings { display: grid; grid-template-columns: 190px minmax(0, 1fr); min-height: 420px; max-height: calc(100vh - 34px); }
 .settings-nav { display: flex; flex-direction: column; gap: 2px; padding: 18px 10px 14px; background: var(--surface-2);
                 border-right: 1px solid var(--line); }
 .settings-nav h2 { margin: 0 8px 12px; font-size: 18px; }
@@ -521,13 +521,15 @@ dialog#settings-dialog { width: min(720px, calc(100vw - 32px)); padding: 0; over
            color: var(--text); text-decoration: none; font-size: 13px; }
 .gh-link:hover { background: var(--surface); }
 .gh-link svg { width: 18px; height: 18px; fill: currentColor; }
-.settings-body { display: flex; flex-direction: column; gap: 16px; padding: 18px 22px; }
+.settings-body { display: flex; flex-direction: column; gap: 16px; padding: 18px 22px 0; min-height: 0;
+                 overflow-y: auto; overscroll-behavior: contain; }  /* scrolls inside, not the page */
 .settings-body .pane { display: grid; gap: 18px; align-content: start; flex: 1; }
 .settings-body .pane[hidden] { display: none; }
 .settings-body h3 { margin: 0; font-size: 16px; }
 .settings-body .hint { margin: 0; font-size: 12px; }
 .settings-body .actions { display: flex; justify-content: space-between; align-items: center; gap: 10px;
-                          border-top: 1px solid var(--line); padding-top: 12px; }
+                          border-top: 1px solid var(--line); padding: 12px 0 16px; margin-top: auto;
+                          position: sticky; bottom: 0; background: var(--surface); }
 @media (max-width: 600px) {
   .settings { grid-template-columns: 1fr; }
   .settings-nav { flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); }
@@ -868,3 +870,7 @@ body.has-player .modal-backdrop { bottom: 76px; }
 .lyr-preview .lyric { cursor: default; }
 
 .lyr-fields .field { margin-bottom: 12px; }
+
+/* long menus scroll inside themselves, not the page (small screens) */
+.drawer { overflow-y: auto; overscroll-behavior: contain; }
+.menu-panel { max-height: calc(100vh - 140px); overflow-y: auto; overscroll-behavior: contain; }

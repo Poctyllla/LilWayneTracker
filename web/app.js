@@ -1501,10 +1501,12 @@ document.querySelector(".settings-nav").addEventListener("click", (event) => {
 // Theme and colours change at once (a preview); everything is saved on "Done".
 // The lyric style changes at once too (the preview in the pane and the open player).
 for (const id of Object.values(LYRIC_FIELDS)) {
-  $(id).addEventListener("input", () => {
-    $("set-lyr-custom").hidden = $("set-lyr-color").value !== "custom";
-    applyLyricStyle(lyricSettingsFromForm());
-  });
+  for (const type of ["input", "change"]) {  // the option chips report "change"
+    $(id).addEventListener(type, () => {
+      $("set-lyr-custom").hidden = $("set-lyr-color").value !== "custom";
+      applyLyricStyle(lyricSettingsFromForm());
+    });
+  }
 }
 for (const id of ["set-theme", "set-accent"]) {
   $(id).addEventListener("change", () => applySettings({ ...loadSettings(), theme: $("set-theme").value, accent: $("set-accent").value }));
