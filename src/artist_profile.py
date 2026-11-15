@@ -30,13 +30,18 @@ PROFILE_PATH = PROJECT_ROOT / "data" / "artist_profile.json"
 PHOTO_PATH = PROJECT_ROOT / "web" / "covers" / "artist.jpg"
 LIL_WAYNE_MBID = "ac9a487a-d9d2-4f27-bb23-0f4686488345"
 DEAD = re.compile(r"plus\.google\.com|myspace\.com|napster\.com", re.IGNORECASE)
+# Not his: a fan site and an expired promo domain listed as "official homepage", and the
+# pages of his songwriter name "Dwayne Carter" (Discogs 689691; AllMusic mn0000665541,
+# named so on Wikidata Q15615 P1728) next to his artist pages (owner's request, Nov 15, 2026).
+DOUBTFUL = re.compile(r"lilwayne-online\.com|thacarterv\.com|discogs\.com/artist/689691\b|allmusic\.com/artist/mn0000665541\b",
+                      re.IGNORECASE)
 GROUPS = (
-    ("social", ("social network", "youtube", "soundcloud")),
-    ("listen", ("free streaming", "streaming", "youtube music", "purchase for download")),
+    ("social", ("social network", "youtube")),
+    ("listen", ("free streaming", "streaming", "youtube music", "purchase for download", "soundcloud")),
     ("official", ("official homepage",)),
     ("reference", ("lyrics", "discogs", "allmusic", "setlistfm", "wikidata", "IMDb", "last.fm")),
 )
-LISTEN_SERVICES = re.compile(r"spotify|music\.apple|tidal|deezer|music\.amazon|music\.youtube", re.IGNORECASE)
+LISTEN_SERVICES = re.compile(r"spotify|music\.apple|tidal|deezer|music\.amazon|music\.youtube|soundcloud", re.IGNORECASE)
 
 
 def musicbrainz_artist():
@@ -53,7 +58,7 @@ def grouped_links(relations):
     result, hosts = {name: [] for name, _ in GROUPS}, set()
     for relation in relations:
         url, kind = (relation.get("url") or {}).get("resource", ""), relation.get("type", "")
-        if not url or DEAD.search(url):
+        if not url or DEAD.search(url) or DOUBTFUL.search(url):
             continue
         for name, kinds in GROUPS:
             if kind in kinds:

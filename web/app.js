@@ -1141,7 +1141,7 @@ function reviewCard(item) {
 function renderReview() {
   const kind = $("review-kind").value;
   const items = (state.review || []).filter((i) => !kind || i.kind === kind);
-  $("review-count").textContent = state.review ? `(${state.review.length})` : "";
+  if ($("review-count")) $("review-count").textContent = state.review ? `(${state.review.length})` : "";
   $("review-list").innerHTML = items.map(reviewCard).join("") || `<p class="muted">Nothing to review.</p>`;
 }
 
@@ -1164,7 +1164,7 @@ $("review-list").addEventListener("click", async (event) => {
   if (response.ok) {
     state.review = state.review.filter((i) => i.key !== decision.key);
     card.outerHTML = `<p class="muted saved">Saved: ${esc(decision.action.replace(/_/g, " "))} — ${esc(decision.key.split(":")[1])}</p>`;
-    $("review-count").textContent = `(${state.review.length})`;
+    if ($("review-count")) $("review-count").textContent = `(${state.review.length})`;
   } else {
     const error = await response.json().catch(() => ({}));
     card.querySelectorAll("button").forEach((b) => { b.disabled = false; });
@@ -1197,6 +1197,7 @@ function showTab(name) {
 
 async function route() {
   const [, kind, id] = (location.hash.match(/^#\/(\w+)(?:\/(\d+))?/) || []);
+  if (kind === "review") { location.hash = "#/songs"; return; }  // the "Needs review" page was removed (owner, Nov 15, 2026)
   if (kind in SECTION_NAMES) showTab(kind);
   if (kind === "eras") { $("era-grid").hidden = false; $("era-view-bar").hidden = false; $("era-detail").hidden = true; }
   try {
@@ -1254,7 +1255,7 @@ async function loadToday() {
       <span><span class="title">${esc(r.title)}</span><br><span class="muted">${years(r.release_date)} years ago ·
       ${esc(fmtDate(r.release_date))}${r.discography === "unofficial" ? " · bootleg" : ""}</span></span></a>`).join("")
     : `<p class="muted">Nothing was released on ${esc(now.toLocaleDateString("en-US", { month: "long", day: "numeric" }))}.</p>`)
-    + `<p class="muted review-line"><a href="#/review">Open questions in “Needs review”</a></p>`;
+;
 }
 
 // Opening the popover marks today's notifications as read (the badge stays off until the next day).

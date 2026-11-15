@@ -27,11 +27,20 @@ _TRACK_PATTERNS = {
 }
 
 
+# ... and as a " - " suffix: "Walk In - Chopped & Screwed" (Genius titles of the
+# Tha Carter Screwed & Chopped edition), "Lollipop - Radio Edit".
+_SUFFIX_PATTERNS = {
+    name: re.compile(rf"\s-\s[^-]*\b(?:{pattern})\b[^-]*$", re.IGNORECASE)
+    for name, pattern in EXCLUDED_VARIANTS.items()
+}
+
+
 def excluded_track_reason(title):
     """Return the excluded variant name for a track title, or None."""
-    for name, pattern in _TRACK_PATTERNS.items():
-        if pattern.search(str(title or "")):
-            return name
+    for patterns in (_TRACK_PATTERNS, _SUFFIX_PATTERNS):
+        for name, pattern in patterns.items():
+            if pattern.search(str(title or "")):
+                return name
     return None
 
 

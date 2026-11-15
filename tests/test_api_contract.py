@@ -140,6 +140,7 @@ class ApiContractTests(unittest.TestCase):
         cls.patches = [
             mock.patch.object(tracker_server, "PROFILE_PATH", profile),
             mock.patch.object(tracker_data, "ARTIST_IMAGES_PATH", folder / "artist_images.json"),  # none: no local data
+            mock.patch.object(tracker_data, "SONG_IMAGES_PATH", folder / "song_images.json"),
             mock.patch.object(review_queue, "EXPORTS_FOLDER", folder / "exports"),
             mock.patch.object(genius_details, "load_cache", return_value={}),
             # LRCLIB answer without the network (urllib.request itself is shared with this test's requests)

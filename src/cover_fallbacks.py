@@ -27,6 +27,7 @@ import urllib.request
 from pathlib import Path
 
 import discogs_source
+import genius_source
 from import_release import DATABASE_PATH
 from release_media import COVERS_FOLDER, is_image
 from streaming_search import base_key, itunes_get
@@ -111,6 +112,35 @@ def from_itunes_search(title, artist="Lil Wayne"):
     return None, None
 
 
+def from_genius_song(connection, release_id):
+    """Genius song art of a single's song (singles released outside the stores, e.g. on
+    SoundCloud, have none elsewhere); Genius's default art is skipped."""
+    if connection.execute("SELECT release_type FROM releases WHERE id = ?", (release_id,)).fetchone()[0] not in ("single", "group_single"):
+        return None, None
+    # the song's Genius page for its main version, the version's own page for a remix
+    # (the original's art is not the remix single's cover)
+    credit = connection.execute("SELECT a.name FROM releases r JOIN artists a ON a.id = r.artist_id WHERE r.id = ?",
+                                (release_id,)).fetchone()[0]
+    for (genius_id,) in connection.execute("""
+            SELECT DISTINCT CASE WHEN v.version_type = 'album' THEN COALESCE(v.genius_song_id, r.genius_song_id)
+                                 ELSE v.genius_song_id END AS genius_id
+            FROM release_tracks rt JOIN versions v ON v.id = rt.version_id JOIN recordings r ON r.id = v.recording_id
+            WHERE rt.release_id = ? ORDER BY rt.track_number""", (release_id,)):
+        if genius_id is None:
+            continue
+        try:
+            song = (genius_source.api_get(f"/songs/{genius_id}") or {}).get("song") or {}
+        except RuntimeError:  # no GENIUS_ACCESS_TOKEN
+            return None, None
+        artist = ((song.get("primary_artist") or {}).get("name") or "").casefold()
+        if artist not in {"lil wayne", credit.casefold(), *(g.casefold() for g in GROUPS)}:
+            continue  # another artist's song: a wrong Genius link, not this single's art
+        art = song.get("song_art_image_url") or song.get("header_image_url") or ""
+        if art and "default" not in art.rsplit("/", 1)[-1]:
+            return art, song.get("url")
+    return None, None
+
+
 def find_cover(connection, release_id, title):
     """(image url, source name, page url) or (None, None, None)."""
     links = connection.execute("SELECT service, url FROM release_links WHERE release_id = ?", (release_id,)).fetchall()
@@ -127,7 +157,8 @@ def find_cover(connection, release_id, title):
         image, page = from_itunes_search(title, name)
         if image:
             return image, "itunes_search", page
-    return None, None, None
+    image, page = from_genius_song(connection, release_id)
+    return (image, "genius_song_art", page) if image else (None, None, None)
 
 
 def download(url):

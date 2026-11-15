@@ -19,6 +19,8 @@ usage:
 """
 
 import argparse
+import glob
+import json
 import re
 import sqlite3
 import time
@@ -106,15 +108,64 @@ def download_cover(release_id, group_id, target):
 
 
 def local_cover(file_paths):
-    """Best cover image next to a release's audio files, or None."""
-    folders = {Path(p).parent for p in file_paths}
-    images = [p for folder in folders if folder.is_dir()
-              for p in folder.iterdir() if p.suffix.lower() in IMAGE_EXTENSIONS]
+    """Best cover image next to a release's audio files, or None.  The release's own
+    folder is the one holding most of its files: its songs may also have files in
+    other releases' folders (The Dedication's tracks are on From 9/11 to Katrina too),
+    whose covers must not win."""
+    counts = {}
+    for path in file_paths:
+        counts[Path(path).parent] = counts.get(Path(path).parent, 0) + 1
+    images = []
+    for folder in sorted(counts, key=lambda f: -counts[f]):  # own folder first, others only as a fallback
+        if folder.is_dir():
+            images = [p for p in folder.iterdir() if p.suffix.lower() in IMAGE_EXTENSIONS]
+        if images:
+            break
     if not images:
         return None
     rank = lambda p: (0 if re.search(r"front|cover|folder", p.name, re.I) else 1,
                       1 if re.search(r"back|cd|inside|tray", p.name, re.I) else 0, -p.stat().st_size)
     return sorted(images, key=rank)[0]
+
+
+PACKAGES_FOLDER = PROJECT_ROOT / "data" / "release_groups"
+SCANS = str(PROJECT_ROOT / "exports" / "library_scan_*.json")
+
+
+def cover_rank(path):
+    """Front covers first, then the largest image (back / CD / tray scans last)."""
+    return (0 if re.search(r"front|cover|folder", path.name, re.I) else 1,
+            1 if re.search(r"back|cd|inside|tray", path.name, re.I) else 0, -path.stat().st_size)
+
+
+def library_folder_covers(connection, scan_path=None, packages_folder=PACKAGES_FOLDER):
+    """{release_id: (folder name, cover path)} for releases built from the local library
+    (packages with source LocalLibrary).  The release's own folder is the scanned folder
+    holding most of its tracks' file names; its songs can have files in other folders
+    too, so the files table alone does not tell which folder the release is."""
+    scans = sorted(glob.glob(SCANS)) if scan_path is None else [scan_path]
+    if not scans:
+        return {}
+    folders = json.loads(Path(scans[-1]).read_text(encoding="utf-8"))["folders"]
+    names = [{t["file_name"] for t in f.get("tracks", [])} for f in folders]
+    result = {}
+    for path in Path(packages_folder).glob("**/*.json"):
+        package = json.loads(path.read_text(encoding="utf-8"))
+        if (package.get("release_group") or {}).get("source") != "LocalLibrary":
+            continue
+        for edition in [package.get("canonical_edition") or {}] + list(package.get("additional_editions") or []):
+            release = edition.get("release") or {}
+            files = {t.get("local_file") for t in edition.get("tracks") or [] if t.get("local_file")}
+            rows = connection.execute("SELECT id FROM releases WHERE title = ? AND COALESCE(release_date, '') = ?",
+                                      (release.get("title"), release.get("release_date") or "")).fetchall()
+            if len(rows) != 1 or not files:
+                continue
+            overlap = [len(files & n) for n in names]
+            best = max(range(len(folders)), key=lambda i: overlap[i])
+            covers = [Path(c) for c in folders[best].get("covers") or [] if Path(c).is_file()]
+            if overlap[best] and covers:
+                result[rows[0][0]] = (folders[best]["folder"], sorted(covers, key=cover_rank)[0])
+    return result
 
 
 def plan(connection):
@@ -135,9 +186,28 @@ def plan(connection):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Release covers and streaming links.")
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--library-covers", action="store_true",
+                        help="re-take the covers of library releases from their own folder")
     args = parser.parse_args(argv)
     connection = sqlite3.connect(DATABASE_PATH)
     try:
+        if args.library_covers:
+            changed = 0
+            for release_id, (folder, image) in sorted(library_folder_covers(connection).items()):
+                current = connection.execute("SELECT cover_file FROM releases WHERE id = ?", (release_id,)).fetchone()[0]
+                data = image.read_bytes()
+                target = COVERS_FOLDER / (current or f"release_{release_id}.jpg")
+                if not is_image(data) or (target.exists() and target.read_bytes() == data):
+                    continue
+                changed += 1
+                print(f"{release_id:>4}  {folder[:70]}  <- {image.name}")
+                if args.apply:
+                    target.write_bytes(data)
+                    if current is None:
+                        with connection:
+                            connection.execute("UPDATE releases SET cover_file = ? WHERE id = ?", (target.name, release_id))
+            print(f"{changed} library covers to replace" + ("" if args.apply else " (dry run; --apply writes them)"))
+            return
         connection.execute("PRAGMA foreign_keys = ON")
         official, library = plan(connection)
         todo = [r for r in official if r[4] is None or r[5] == 0]

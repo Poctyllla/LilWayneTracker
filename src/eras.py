@@ -1,24 +1,28 @@
 """Eras of the tracker, one per solo studio album (user decision, Nov 13, 2026),
-preceded by the group (Hot Boys) albums released before the first solo
-album (user decision, Nov 14, 2026).  Only group albums that are eras count
-for the 'album' rule below (later group albums do not).
+preceded by one era "Before Tha Block Is Hot" for everything before the first
+solo album's era -- the Hot Boys years (user decision, Nov 15, 2026; it
+replaced the two group-album eras of Nov 14).
 
-Era boundaries come from the catalogue: the era of an album runs from the day
-after the previous solo studio album's release to its own release date (the
-first era has no start; after the latest album an open era "After <album>"
-collects newer songs).  Release date = earliest full date of the album's
-release group.
+Era boundaries (user decision, Nov 15, 2026): an album's era begins with the
+first single from that album (its earliest full-dated official single whose
+main versions are on the album) or with the album itself, whichever is
+earlier, and lasts until the next album's era begins; so an era continues
+after its album's release until the next project's first single.  The first
+era has no start, the latest album's era stays open (no separate "After"
+era).  Release date = earliest full date of the album's release group.
 
 A song's era (recordings.era_id, era_source):
   'album'  it is on a solo studio album (any edition, deluxe included):
-           the earliest such album
+           the earliest such album -- unless the song came out officially
+           (single, mixtape ...) in an earlier era: then that era, 'date'
+           (Hot Revolver: 2009 single, on I Am Not a Human Being II in 2013)
   'date'   otherwise the era of its earliest known date: release dates of
            the releases it is on, versions.first_known_date,
            recording_date, leak_date.  A year- or month-only date counts
            only when the whole period lies in one era.
-  'year'   a year- or month-only date that crosses an era boundary: the
-           earliest era of that period ("2008" -> Tha Carter III; user
-           decision Nov 13, 2026)
+  'year'   a year- or month-only date that crosses an era boundary: the era
+           covering most of that period ("2008" -> Tha Carter III, as the
+           user decided on Nov 13, 2026; ties go to the earlier era)
   'manual' set by hand; never overwritten.
 Songs without any usable date stay without an era.
 
@@ -29,6 +33,7 @@ usage:
 
 import argparse
 import calendar
+import datetime
 import re
 import sqlite3
 
@@ -61,22 +66,61 @@ def album_eras(connection):
         full = sorted(e for e in album["editions"] if FULL_DATE.match(e[0]))
         first = (full or sorted(album["editions"]) or [(None, None, None)])[0]
         album["release_date"], album["name"] = first[0], first[2]
-    solo_dates = [a["release_date"] for a in albums.values() if a["type"] == "studio_album" and a["release_date"]]
-    first_solo = min(solo_dates, default="9999")
-    ordered = sorted((a for a in albums.values() if a["release_date"] and
-                      (a["type"] == "studio_album" or a["release_date"] < first_solo)),
+    ordered = sorted((a for a in albums.values() if a["release_date"] and a["type"] == "studio_album"),
                      key=lambda a: a["release_date"])
-    eras, previous = [], None
+    singles = first_singles(connection)
+    # The era begins with the album's first single when that came out before the album
+    # (never before the previous album's release).
+    starts, previous = [], None
     for album in ordered:
-        eras.append({"name": album["name"], "start_date": _next_day(previous), "end_date": album["release_date"],
-                     "release_group_id": album["release_group_id"],
-                     "description": f"Songs up to the release of {album['name']} ({album['release_date']})."})
+        start = album["release_date"]
+        # the first single after the previous album (an older song re-released as a single does not count)
+        single = next((s for s in singles.get(album["release_group_id"], []) if previous is None or s[0] > previous), None)
+        if single and single[0] < start:
+            start = single[0]
+        starts.append((start, single if start != album["release_date"] else None))
         previous = album["release_date"]
-    if ordered:
-        last = ordered[-1]["name"]
-        eras.append({"name": f"After {last}", "start_date": _next_day(previous), "end_date": None,
-                     "release_group_id": None, "description": f"Songs after the release of {last}."})
+    eras = []
+    for index, album in enumerate(ordered):
+        start, single = starts[index]
+        following = starts[index + 1][0] if index + 1 < len(ordered) else None
+        opening = f"from its first single {single[1]} ({single[0]})" if single else f"from its release ({album['release_date']})"
+        eras.append({"name": album["name"], "start_date": start,
+                     "end_date": _previous_day(following) if following else None,
+                     "release_group_id": album["release_group_id"],
+                     "description": f"The {album['name']} era: {opening} until the next project's first single."})
+    if eras:  # the years before the first solo album (Hot Boys, Cash Money)
+        first = eras[0]
+        eras.insert(0, {"name": f"Before {first['name']}", "start_date": None, "end_date": _previous_day(first["start_date"]),
+                        "release_group_id": None,
+                        "description": f"Before {first['name']}: the Hot Boys and early Cash Money years, until "
+                                       f"{first['start_date']}."})
     return eras
+
+
+def first_singles(connection):
+    """{album release group: [(date, title), ...] by date} of the full-dated official
+    singles whose main versions are on that album (a remix single is not a single of it)."""
+    singles = {}
+    for group_id, date, title in connection.execute("""
+        SELECT COALESCE(a.musicbrainz_release_group_id, 'release:' || a.id), s.release_date, s.title
+        FROM releases s JOIN release_tracks st ON st.release_id = s.id JOIN versions sv ON sv.id = st.version_id
+        JOIN versions av ON av.recording_id = sv.recording_id AND av.version_type = 'album'
+        JOIN release_tracks at ON at.version_id = av.id JOIN releases a ON a.id = at.release_id
+        WHERE s.release_type IN ('single', 'group_single') AND s.discography = 'official'
+          AND sv.version_type = 'album' AND length(s.release_date) = 10
+          AND a.release_type IN ('studio_album', 'group_album') AND a.discography = 'official'"""):
+        singles.setdefault(group_id, []).append((date, title))
+    return {group: sorted(set(items)) for group, items in singles.items()}
+
+
+def _previous_day(date_text):
+    year, month, day = map(int, date_text.split("-"))
+    if day > 1:
+        return f"{year:04d}-{month:02d}-{day - 1:02d}"
+    if month > 1:
+        return f"{year:04d}-{month - 1:02d}-{calendar.monthrange(year, month - 1)[1]:02d}"
+    return f"{year - 1:04d}-12-31"
 
 
 def _next_day(date_text):
@@ -117,16 +161,25 @@ def era_of(eras, date_text):
 
 
 def earliest_era_of(eras, date_text):
-    """Index of the earliest era a period overlaps (user decision Nov 13, 2026:
-    a song dated only '2008' belongs to the earlier era -- songs on bootlegs
-    are usually recorded before they leak)."""
+    """Index of the era covering most of a period ("2008": Tha Carter II has
+    Jan 1 - Apr 27, Tha Carter III Apr 28 - Dec 31 -> Tha Carter III, the user's
+    example of Nov 13, 2026); ties go to the earlier era."""
     period = date_range(date_text)
     if period is None:
         return None
+    best, best_days = None, 0
     for index, era in enumerate(eras):
-        if era["end_date"] is None or period[0] <= era["end_date"]:
-            return index
-    return None
+        start = max(period[0], era["start_date"] or "0000-01-01")
+        end = min(period[1], era["end_date"] or "9999-12-31")
+        if start <= end:
+            days = (_as_date(end) - _as_date(start)).days + 1
+            if days > best_days:
+                best, best_days = index, days
+    return best
+
+
+def _as_date(text):
+    return datetime.date(*map(int, text.split("-")))
 
 
 def earliest(dates):
@@ -148,6 +201,12 @@ def plan_assignments(connection, eras):
     """):
         if group_id in era_by_group:
             album_era[recording_id] = min(album_era.get(recording_id, 99999), era_by_group[group_id])
+    official = {}  # dates of official releases (an earlier official release beats the album rule)
+    for recording_id, date_text in connection.execute("""
+        SELECT v.recording_id, r.release_date FROM versions v
+        JOIN release_tracks rt ON rt.version_id = v.id JOIN releases r ON r.id = rt.release_id
+        WHERE r.discography = 'official' AND r.release_date IS NOT NULL AND r.release_date != ''"""):
+        official.setdefault(recording_id, []).append(date_text)
     dates = {}
     for recording_id, date_text in connection.execute("""
         SELECT v.recording_id, r.release_date FROM versions v
@@ -163,7 +222,14 @@ def plan_assignments(connection, eras):
         if era_source == "manual":
             continue
         if recording_id in album_era:
-            plan[recording_id] = (album_era[recording_id], "album")
+            first = earliest(official.get(recording_id, []))
+            released = era_of(eras, first) if first else None
+            if released is None and first:
+                released = earliest_era_of(eras, first)
+            if released is not None and released < album_era[recording_id]:
+                plan[recording_id] = (released, "date")
+            else:
+                plan[recording_id] = (album_era[recording_id], "album")
             continue
         date_text = earliest(dates.get(recording_id, []))
         index = era_of(eras, date_text)
@@ -190,6 +256,11 @@ def apply(connection, eras, plan):
     for recording_id, (index, source) in plan.items():
         connection.execute("UPDATE recordings SET era_id = ?, era_source = ? WHERE id = ?",
                            (ids[index] if index is not None else None, source, recording_id))
+    marks = ",".join("?" * len(ids))
+    stale = [row[0] for row in connection.execute(f"SELECT id FROM eras WHERE id NOT IN ({marks})", ids)]
+    for era_id in stale:  # an era no longer in the list (e.g. the former "After Tha Carter VI")
+        if not connection.execute("SELECT 1 FROM recordings WHERE era_id = ?", (era_id,)).fetchone():
+            connection.execute("DELETE FROM eras WHERE id = ?", (era_id,))
     return ids
 
 

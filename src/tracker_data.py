@@ -11,6 +11,7 @@ import re
 import sqlite3
 from pathlib import Path
 
+import eras
 from import_release import DATABASE_PATH
 # Playback sources live in audio_providers.py (names kept here for callers).
 from audio_providers import AUDIO_TYPES, audio_file, playables, song_play  # noqa: F401
@@ -178,12 +179,24 @@ def has_column(connection, table, column):
     return any(row[1] == column for row in connection.execute(f"PRAGMA table_info({table})"))
 
 
+SONG_IMAGES_PATH = Path(__file__).resolve().parent.parent / "data" / "song_images.json"
+
+
+def song_images():
+    """{recording_id: image file under web/covers/} -- original covers of guest songs (song_images.py)."""
+    try:
+        return {int(k): v["file"] for k, v in json.loads(SONG_IMAGES_PATH.read_text(encoding="utf-8")).items()}
+    except (OSError, ValueError):
+        return {}
+
+
 def song_covers(connection):
     """{recording_id: cover file} -- the cover of the release a song came out on:
-    the earliest official release with a cover, else any release with a cover."""
+    the earliest official release with a cover, else any release with a cover; a guest
+    song (not on his releases) has the original cover of its own release (song_images.py)."""
     if not has_column(connection, "releases", "cover_file"):
         return {}
-    covers = {}
+    covers = dict(song_images())
     for recording_id, cover in connection.execute("""
         SELECT v.recording_id, r.cover_file FROM versions v
         JOIN release_tracks rt ON rt.version_id = v.id JOIN releases r ON r.id = rt.release_id
@@ -395,9 +408,9 @@ SINGLE_TYPES = ("single", "group_single")
 
 
 def single_album_eras(connection):
-    """{release_id: era_id} of singles whose songs are on a solo studio album
-    (recordings.era_source = 'album'): the era of that album (the most common one
-    when a single carries songs of several albums)."""
+    """{release_id: era_id} of singles whose songs (their main versions) are on a solo
+    studio album (recordings.era_source = 'album'): the era of that album (the most
+    common one when a single carries songs of several albums)."""
     marks = ",".join("?" * len(SINGLE_TYPES))
     counts = {}
     for release_id, era_id, n in connection.execute(f"""
@@ -405,6 +418,7 @@ def single_album_eras(connection):
             JOIN releases r ON r.id = rt.release_id JOIN versions v ON v.id = rt.version_id
             JOIN recordings rec ON rec.id = v.recording_id
             WHERE r.release_type IN ({marks}) AND rec.era_source = 'album' AND rec.era_id IS NOT NULL
+              AND v.version_type = 'album'  -- a remix single (A Milli remixes, 2023) is not a single of the album
             GROUP BY 1, 2""", SINGLE_TYPES):
         counts.setdefault(release_id, []).append((n, -era_id, era_id))
     return {release_id: max(items)[2] for release_id, items in counts.items()}
@@ -423,9 +437,14 @@ def era(connection, era_id):
     # deluxe versions and reissues do not move an album into a later era); a single
     # from a solo studio album belongs to that album's era even when it came out later.
     from_album = single_album_eras(connection)
-    result["releases"] = [release for release in first_editions(connection, cover)
-                          if (from_album[release["id"]] == era_id if release["id"] in from_album
-                              else start <= release["release_date"][:10] <= end)]
+    all_eras = [dict(row) for row in connection.execute("SELECT id, start_date, end_date FROM eras ORDER BY COALESCE(end_date, '9999')")]
+    def release_era(release):  # a year-only date: the era covering most of that year (eras.py rule)
+        if release["id"] in from_album:
+            return from_album[release["id"]]
+        index = eras.era_of(all_eras, release["release_date"])
+        index = index if index is not None else eras.earliest_era_of(all_eras, release["release_date"])
+        return all_eras[index]["id"] if index is not None else None
+    result["releases"] = [release for release in first_editions(connection, cover) if release_era(release) == era_id]
     result["songs"] = [dict(row) for row in connection.execute("""
         SELECT r.id, r.title, a.name AS artist, r.appearance = 'guest' AS guest, av.availability AS status
         FROM recordings r JOIN artists a ON a.id = r.artist_id JOIN recording_availability av ON av.recording_id = r.id

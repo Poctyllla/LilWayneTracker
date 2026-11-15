@@ -20,6 +20,10 @@ import database
 import tracker_data
 import tracker_server
 
+# The tests never read the owner's local image maps (people photos, guest song covers).
+tracker_data.ARTIST_IMAGES_PATH = Path(tempfile.gettempdir()) / "lwt-test-no-artist-images.json"
+tracker_data.SONG_IMAGES_PATH = Path(tempfile.gettempdir()) / "lwt-test-no-song-images.json"
+
 
 class TrackerTests(unittest.TestCase):
     @classmethod
@@ -171,14 +175,15 @@ class SingleEraTests(unittest.TestCase):
         connection.executescript("""
             CREATE TABLE releases (id INTEGER PRIMARY KEY, release_type TEXT);
             CREATE TABLE recordings (id INTEGER PRIMARY KEY, era_id INTEGER, era_source TEXT);
-            CREATE TABLE versions (id INTEGER PRIMARY KEY, recording_id INTEGER);
+            CREATE TABLE versions (id INTEGER PRIMARY KEY, recording_id INTEGER, version_type TEXT);
             CREATE TABLE release_tracks (id INTEGER PRIMARY KEY, release_id INTEGER, version_id INTEGER);
-            INSERT INTO releases VALUES (1, 'single'), (2, 'single'), (3, 'studio_album');
+            INSERT INTO releases VALUES (1, 'single'), (2, 'single'), (3, 'studio_album'), (4, 'single');
             INSERT INTO recordings VALUES (10, 6, 'album'), (11, 7, 'date');
-            INSERT INTO versions VALUES (100, 10), (101, 11);
-            INSERT INTO release_tracks (release_id, version_id) VALUES (1, 100), (2, 101), (3, 100);
+            INSERT INTO versions VALUES (100, 10, 'album'), (101, 11, 'album'), (102, 10, 'remix');
+            INSERT INTO release_tracks (release_id, version_id) VALUES (1, 100), (2, 101), (3, 100), (4, 102);
         """)
-        self.assertEqual(tracker_data.single_album_eras(connection), {1: 6})  # 2: no album song; 3: not a single
+        # 2: no album song; 3: not a single; 4: a remix single (A Milli remixes, 2023) is not the album's
+        self.assertEqual(tracker_data.single_album_eras(connection), {1: 6})
 
 
 class PlayerTests(unittest.TestCase):
