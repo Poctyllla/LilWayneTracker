@@ -1319,7 +1319,7 @@ function videoCard(video) {
     <span class="video-thumb"><img src="${esc(videoThumb(video))}" alt="" loading="lazy"><span class="video-play" aria-hidden="true">▶</span></span>
     <span class="card-body"><span class="title">${esc(video.title)}</span>
       <span class="artist">${esc(video.channel || "")}${video.official ? "" : " · unofficial upload"}${noEmbed().has(video.youtube_id) ? " · ↗ YouTube" : ""}</span>
-      <span class="artist">${esc(VIDEO_KINDS[video.kind] ? VIDEO_KINDS[video.kind].replace(/s$/, "") : video.kind)}${song ? ` · ${esc(song.title)}` : ""}${video.song_date ? ` · ${esc(video.song_date.slice(0, 4))}` : ""}</span></span></button>`;
+      <span class="artist">${esc(VIDEO_KINDS[video.kind] ? VIDEO_KINDS[video.kind].replace(/s$/, "") : video.kind)}${video.event ? ` · ${esc(video.event)}` : ""}${song ? ` · ${esc(song.title)}` : ""}${!video.event && (video.date || video.song_date) ? ` · ${esc((video.date || video.song_date).slice(0, 4))}` : ""}</span></span></button>`;
 }
 async function renderVideos() {
   if (!state.videos) {
@@ -1334,8 +1334,8 @@ async function renderVideos() {
   $("video-filter-count").textContent = kinds.size + eras.size ? `(${Boolean(kinds.size) + Boolean(eras.size)})` : "";
   const list = state.videos.filter((v) => (!official || v.official) && (!kinds.size || kinds.has(v.kind))
     && (!eras.size || v.songs.some((s) => eras.has(String(s.era))))
-    && (!query || fold([v.title, v.channel, ...v.songs.map((s) => s.title)].join(" ")).includes(query)))
-    .sort((a, b) => (a.song_date || "9999").localeCompare(b.song_date || "9999"));
+    && (!query || fold([v.title, v.channel, v.event || "", ...v.songs.map((s) => s.title)].join(" ")).includes(query)))
+    .sort((a, b) => (a.date || a.song_date || "9999").localeCompare(b.date || b.song_date || "9999"));
   $("video-total").textContent = `${plural(list.length, "video")} · YouTube, played in its privacy-enhanced embed${official ? " · official channels only" : ""}`;
   $("video-grid").innerHTML = list.map(videoCard).join("") || `<p class="muted">No videos.</p>`;
 }

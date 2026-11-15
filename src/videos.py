@@ -5,7 +5,13 @@ Sources (no API key needed):
     group with him (official music videos), matched to catalogued songs by
     Genius / MusicBrainz id, else by title;
   * Genius: the YouTube link on the song page of every catalogued song
-    (genius_details.py --media keeps them).
+    (genius_details.py --media keeps them);
+  * YouTube Data API v3 (key in the environment variable YOUTUBE_API_KEY; ~100
+    searches a day are free): performances (award shows, TV, festivals) and
+    freestyles (radio, cyphers), YOUTUBE_QUERIES; answers cached in
+    exports/youtube_search.json, so a query costs quota only once.  Only videos
+    with Lil Wayne in the title; songs are linked when their title is in the
+    video title.
 Every video is checked with YouTube's oEmbed endpoint (title and channel; a video
 that is gone, private or not embeddable has no oEmbed and is dropped), cached in
 exports/youtube_oembed.json.  Audio-only uploads (Official Audio, lyric videos,
@@ -19,7 +25,9 @@ usage:
 """
 
 import argparse
+import html
 import json
+import os
 import re
 import sqlite3
 import time
@@ -34,6 +42,28 @@ from titles import normalized_title
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 OEMBED_CACHE = PROJECT_ROOT / "exports" / "youtube_oembed.json"
+SEARCH_CACHE = PROJECT_ROOT / "exports" / "youtube_search.json"
+# (query, kind, event) -- the event names the performance ("BET Awards"); None: from the title
+YOUTUBE_QUERIES = [(q, "performance", e) for q, e in (
+    ("Lil Wayne BET Awards performance", "BET Awards"), ("Lil Wayne BET Hip Hop Awards performance", "BET Hip Hop Awards"),
+    ("Lil Wayne Grammys performance", "Grammy Awards"), ("Lil Wayne VMA performance", "MTV Video Music Awards"),
+    ("Lil Wayne Billboard Music Awards performance", "Billboard Music Awards"),
+    ("Lil Wayne American Music Awards performance", "American Music Awards"),
+    ("Lil Wayne Saturday Night Live", "Saturday Night Live"), ("Lil Wayne Tonight Show performance", "The Tonight Show"),
+    ("Lil Wayne Jimmy Kimmel Live performance", "Jimmy Kimmel Live"), ("Lil Wayne Tiny Desk", "NPR Tiny Desk"),
+    ("Lil Wayne Lollapalooza", "Lollapalooza"), ("Lil Wayne Coachella", "Coachella"), ("Lil Wayne Rolling Loud", "Rolling Loud"),
+    ("Lil Wayne Essence Festival", "Essence Festival"), ("Lil Wayne Super Bowl", "Super Bowl"),
+    ("Lil Wayne live in concert", None), ("Lil Wayne Lil Weezyana Fest", "Lil Weezyana Fest"),
+    ("Lil Wayne MTV Unplugged", "MTV Unplugged"), ("Lil Wayne Late Show performance", "The Late Show"),
+)] + [(q, "freestyle", e) for q, e in (
+    ("Lil Wayne Hot 97 freestyle", "Hot 97"), ("Lil Wayne Funk Flex freestyle", "Funk Flex"),
+    ("Lil Wayne Sway in the Morning freestyle", "Sway in the Morning"), ("Lil Wayne Power 106 freestyle", "Power 106"),
+    ("Lil Wayne Westwood freestyle", "Tim Westwood"), ("Lil Wayne LA Leakers freestyle", "LA Leakers"),
+    ("Lil Wayne BET cypher", "BET Hip Hop Awards Cypher"), ("Lil Wayne 106 and Park freestyle", "106 & Park"),
+    ("Lil Wayne Breakfast Club freestyle", "The Breakfast Club"), ("Lil Wayne Rap City freestyle", "Rap City"),
+    ("Lil Wayne radio freestyle", None), ("Lil Wayne Young Money cypher", None),
+)]
+WAYNE_IN_TITLE = re.compile(r"lil'? ?wayne|weezy|tunechi", re.IGNORECASE)
 GENIUS_PATH = PROJECT_ROOT / "exports" / "genius_song_details.json"
 USER_AGENT = "LilWayneTracker/0.1 (local catalog project)"
 YOUTUBE_ID = re.compile(r"(?:v=|youtu\.be/|/embed/|/shorts/)([A-Za-z0-9_-]{11})")
@@ -110,6 +140,28 @@ class OEmbed:
         OEMBED_CACHE.write_text(json.dumps(self.cache, ensure_ascii=False, indent=0), encoding="utf-8")
 
 
+def youtube_search():
+    """[(query, kind, event, item)] for YOUTUBE_QUERIES; new queries use the API (cached)."""
+    cache = json.loads(SEARCH_CACHE.read_text(encoding="utf-8")) if SEARCH_CACHE.exists() else {}
+    key = os.environ.get("YOUTUBE_API_KEY")
+    for query, _kind, _event in YOUTUBE_QUERIES:
+        if query in cache or not key:
+            continue
+        url = "https://www.googleapis.com/youtube/v3/search?" + urllib.parse.urlencode(
+            {"part": "snippet", "type": "video", "maxResults": 25, "q": query, "key": key})
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}), timeout=30) as r:
+                data = json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            print(f"YouTube API error {error.code} for '{query}' (daily quota used up?); the other queries wait")
+            break
+        cache[query] = [{"id": i["id"]["videoId"], "title": html.unescape(i["snippet"]["title"]),
+                         "channel": html.unescape(i["snippet"]["channelTitle"]), "published": i["snippet"]["publishedAt"][:10]}
+                        for i in data.get("items", []) if (i.get("id") or {}).get("videoId")]
+        SEARCH_CACHE.write_text(json.dumps(cache, ensure_ascii=False, indent=1), encoding="utf-8")
+    return [(query, kind, event, item) for query, kind, event in YOUTUBE_QUERIES for item in cache.get(query, [])]
+
+
 def kind_of(title):
     for kind, pattern in KINDS:
         if pattern.search(title or ""):
@@ -147,16 +199,41 @@ def plan(connection, oembed, use_wikidata=True):
     by_genius, by_mb, by_title = song_index(connection)
     found = {}
 
-    def add(video_id, recording_id, source):
-        info = oembed.get(video_id)
+    def add(video_id, recording_id, source, info=None, kind=None, event=None, date=None):
+        info = info or oembed.get(video_id)
         if not info or AUDIO_ONLY.search(info["title"] or "") or AUDIO_ONLY.search(info["channel"] or ""):
             return
-        names = artist_names(connection, recording_id) | {letters("Lil Wayne")}
+        names = (artist_names(connection, recording_id) if recording_id else set()) | {letters("Lil Wayne")}
         channel = letters(re.sub(r"vevo$", "", info["channel"] or "", flags=re.IGNORECASE))
         official = (info["channel"] or "").upper().endswith("VEVO") or channel in names or letters(info["channel"] or "") in OFFICIAL_CHANNELS
-        entry = found.setdefault(video_id, {"title": info["title"], "channel": info["channel"], "kind": kind_of(info["title"]),
+        entry = found.setdefault(video_id, {"title": info["title"], "channel": info["channel"],
+                                            "kind": kind or kind_of(info["title"]), "event": event, "date": date,
                                             "official": official, "source": source, "songs": set()})
-        entry["songs"].add(recording_id)
+        if recording_id:
+            entry["songs"].add(recording_id)
+
+    # YouTube search: performances and freestyles; songs named in the video title are linked
+    own_titles = sorted(((normalized_title(t), rid) for rid, t in connection.execute(
+        "SELECT id, title FROM recordings WHERE appearance IS NULL")
+        if len(normalized_title(t)) >= 5), key=lambda x: -len(x[0]))
+    for query, kind, event, item in youtube_search():
+        if not WAYNE_IN_TITLE.search(item["title"]):
+            continue
+        title_key = " " + normalized_title(item["title"]) + " "
+        year = re.search(r"\b(19[89]\d|20[0-3]\d)\b", item["title"])
+        detail = f"{event} {year.group(1)}" if event and year else event
+        songs = []
+        for song_key, rid in own_titles:
+            if f" {song_key} " in title_key and not any(song_key in longer for longer, _rid in songs):  # "Milli" inside "A Milli"
+                songs.append((song_key, rid))
+            if len(songs) == 3:
+                break
+        info = {"title": item["title"], "channel": item["channel"]}
+        if not songs:
+            add(item["id"], None, "YouTube API", info, kind_of(item["title"]) if kind == "performance" and "freestyle" in item["title"].lower() else kind,
+                detail, year.group(1) if year else None)
+        for _key, rid in songs:
+            add(item["id"], rid, "YouTube API", info, kind, detail, year.group(1) if year else None)
 
     genius = json.loads(GENIUS_PATH.read_text(encoding="utf-8")) if GENIUS_PATH.exists() else {}
     for genius_id, recording_id in by_genius.items():
@@ -201,10 +278,12 @@ def main(argv=None):
             connection.execute("DELETE FROM videos")
             for video_id, video in found.items():
                 connection.execute("""
-                    INSERT INTO videos (youtube_id, title, channel, kind, official, source) VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO videos (youtube_id, title, channel, kind, event, date, official, source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (youtube_id) DO UPDATE SET title = excluded.title, channel = excluded.channel,
                         official = excluded.official""",
-                    (video_id, video["title"], video["channel"], video["kind"], int(video["official"]), video["source"]))
+                    (video_id, video["title"], video["channel"], video["kind"], video.get("event"), video.get("date"),
+                     int(video["official"]), video["source"]))
                 row_id = connection.execute("SELECT id FROM videos WHERE youtube_id = ?", (video_id,)).fetchone()[0]
                 for recording_id in video["songs"]:
                     connection.execute("INSERT OR IGNORE INTO video_recordings (video_id, recording_id) VALUES (?, ?)",
