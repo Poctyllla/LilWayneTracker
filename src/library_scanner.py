@@ -24,11 +24,12 @@ from pathlib import Path
 from mutagen.easyid3 import EasyID3
 from mutagen.id3 import ID3NoHeaderError
 from mutagen.mp3 import MP3, HeaderNotFoundError
+import mutagen
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 EXPORTS_FOLDER = PROJECT_ROOT / "exports"
-AUDIO_EXTENSIONS = {".mp3"}
+AUDIO_EXTENSIONS = {".mp3", ".flac", ".m4a"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".jpe"}
 
 KIND_MARKERS = (
@@ -71,6 +72,10 @@ def parse_folder_name(name):
         if match:
             artist = match.group(1)
             title = re.sub(r"\s+", " ", re.sub(r"[._]+", " ", match.group(2))).strip()
+        elif not rest.strip():
+            # A plain folder name is the release ("Music/Lil Wayne/Dedication 2")
+            artist = "Lil Wayne"
+            title = re.sub(r"\s+", " ", re.sub(r"[._()\[\]]+", " ", name)).strip()
     return {
         "artist": re.sub(r"[._]+", " ", artist).strip(),
         "title": title,
@@ -179,16 +184,29 @@ def sha256_of(path):
 def scan_file(path, compute_hash=True):
     info = {"file_path": str(path), "file_name": path.name, "format": path.suffix.lstrip(".").lower(),
             "file_size": path.stat().st_size}
-    try:
-        audio = MP3(path)
-        info.update(duration_ms=int(round(audio.info.length * 1000)),
-                    bitrate=audio.info.bitrate, sample_rate=audio.info.sample_rate)
-    except (HeaderNotFoundError, OSError) as error:
-        info["error"] = f"audio: {error}"
-    try:
-        tags = EasyID3(path)
-    except (ID3NoHeaderError, OSError):
-        tags = {}
+    if path.suffix.lower() == ".mp3":
+        try:
+            audio = MP3(path)
+            info.update(duration_ms=int(round(audio.info.length * 1000)),
+                        bitrate=audio.info.bitrate, sample_rate=audio.info.sample_rate)
+        except (HeaderNotFoundError, OSError) as error:
+            info["error"] = f"audio: {error}"
+        try:
+            tags = EasyID3(path)
+        except (ID3NoHeaderError, OSError):
+            tags = {}
+    else:  # FLAC, M4A: the same easy tag names through mutagen
+        try:
+            audio = mutagen.File(path, easy=True)
+            if audio is None:
+                raise mutagen.MutagenError("unknown format")
+            info.update(duration_ms=int(round(audio.info.length * 1000)),
+                        bitrate=getattr(audio.info, "bitrate", None) or None,
+                        sample_rate=getattr(audio.info, "sample_rate", None))
+            tags = audio.tags or {}
+        except (mutagen.MutagenError, OSError) as error:
+            info["error"] = f"audio: {error}"
+            tags = {}
     tag = lambda key: (tags.get(key) or [None])[0]
     artist = tag("artist")
     raw_title = tag("title") or re.sub(r"^\d+[-_. ]+", "", path.stem).replace("_", " ")

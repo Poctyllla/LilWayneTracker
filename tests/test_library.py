@@ -38,6 +38,8 @@ class FolderNameTests(unittest.TestCase):
                 ("The Carter Meets The Cartel II", 2009, "bootleg", None),
             "Lil.Wayne.&.The.Game.4.Blood.Sake-(Bootleg)-2008-[NoFS]": ("4 Blood Sake", 2008, "bootleg", None),
             "Lil.Wayne.Ringtones.VR.7-[NoFS]": ("Ringtones VR 7", None, "other", None),
+            "Dedication 2": ("Dedication 2", None, "other", None),  # Music/Lil Wayne/<release>
+            "SQ7 (10,000 Bars)": ("SQ7 10,000 Bars", None, "other", None),
         }
         for name, (title, year, kind, disc) in cases.items():
             with self.subTest(name):
