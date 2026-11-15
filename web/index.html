@@ -127,6 +127,7 @@
     <button class="icon-button" id="menu-close" aria-label="Close menu">×</button></div>
   <a class="tab" data-tab="home" href="#/home">Home</a>
   <a class="tab" data-tab="songs" href="#/songs">Songs</a>
+  <a class="tab" data-tab="library" href="#/library">Library</a>
   <a class="tab" data-tab="eras" href="#/eras">Eras</a>
   <a class="tab" data-tab="timeline" href="#/timeline">Timeline</a>
   <a class="tab" data-tab="releases" href="#/releases">Releases</a>
@@ -140,6 +141,8 @@
 
 <main>
   <section id="home-view" hidden><div id="home"></div></section>
+
+  <section id="library-view" hidden><div id="library"></div></section>
 
   <section id="songs-view" hidden>
     <div class="filters">
@@ -178,7 +181,8 @@
       <button class="chip on" data-status="leaked">Leaked <span></span></button>
       <button class="chip on" data-status="unreleased">Unreleased <span></span></button>
     </div>
-    <p id="shown" class="muted"></p>
+    <div class="shown-bar"><p id="shown" class="muted"></p>
+      <button type="button" class="act ghost" id="shuffle-shown" title="Radio from the songs shown (any filters)">🔀 Shuffle shown</button></div>
     <div id="song-list"></div>
     <div id="song-sentinel" aria-hidden="true"></div>
   </section>

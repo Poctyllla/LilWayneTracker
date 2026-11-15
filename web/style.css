@@ -981,3 +981,33 @@ dialog.video-dialog::backdrop { background: rgba(0,0,0,.7); }
 .chart-table a { color: inherit; text-decoration: none; font-weight: 600; }
 .chart-table th { text-align: center; }
 .chart-table th:first-child { text-align: left; }
+
+/* favourites, playlists, radio */
+.fav-btn { font: inherit; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 6px 0 0; font-size: 16px; line-height: 1; }
+.fav-btn.on { color: #e0574c; }
+.fav-btn.big { font-size: 20px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 999px; }
+.fav-btn:hover { color: #e0574c; }
+.shown-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.shown-bar .act { margin: 0; }
+.head-play { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; position: relative; }
+.head-play .act { margin: 0; }
+.playlist-pop { position: absolute; z-index: 30; top: 100%; right: 0; display: grid; min-width: 200px; padding: 6px; border-radius: 12px;
+                background: var(--surface); border: 1px solid var(--line); box-shadow: 0 12px 30px rgba(0,0,0,.35); }
+.playlist-pop button { font: inherit; text-align: left; padding: 8px 10px; border: 0; border-radius: 8px; background: none; color: var(--text); cursor: pointer; }
+.playlist-pop button:hover { background: var(--surface-2); }
+#library { display: grid; gap: 14px; }
+.lib-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.lib-actions .act { margin: 0; }
+.lib-era { display: inline-flex; gap: 6px; align-items: center; }
+.lib-era select { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text); }
+.lib-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.lib-head h3 { margin: 0 auto 0 0; }
+.lib-head .act { margin: 0; }
+.lib-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+.lib-num { width: 22px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.lib-title { flex: 1; min-width: 0; display: flex; flex-direction: column; color: inherit; text-decoration: none; font-weight: 600; }
+.lib-title .muted { font-weight: 400; font-size: 12px; }
+.icon-mini { font: inherit; border: 1px solid var(--line); background: none; color: var(--muted); border-radius: 8px; width: 28px; height: 28px; cursor: pointer; }
+.icon-mini:hover { color: var(--text); border-color: var(--accent); }
+.lib-list { border-top: 1px solid var(--line); padding: 8px 0; }
+.lib-list summary { cursor: pointer; }

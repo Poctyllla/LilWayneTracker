@@ -100,7 +100,29 @@ function shuffled(items) {
   return list;
 }
 
+// Radio: a shuffled pick of songs; more are added when the queue runs out.
+const RADIO_BATCH = 25;
+function radioBatch() {
+  const pool = (player.radio || []).filter((song) => playable(song.play));
+  return shuffled(pool).slice(0, RADIO_BATCH).map(songItem);
+}
+function startRadio(songs, label) {
+  player.radio = songs.filter((song) => playable(song.play));
+  if (!player.radio.length) { flash("Nothing playable here."); return; }
+  const items = radioBatch();
+  startQueue(items, 0);
+  player.radio = songs.filter((song) => playable(song.play));  // startQueue ends a radio; this one goes on
+  flash(`Radio: ${label || "shuffled songs"}`);
+}
+window.startRadio = startRadio;
+window.playSongs = (songs, index = 0) => {  // a list of songs in order (playlists, favourites)
+  const list = songs.filter((song) => playable(song.play));
+  if (!list.length) { flash("Nothing playable here."); return; }
+  startQueue(list.map(songItem), Math.max(0, list.indexOf(songs[index])));
+};
+
 function startQueue(items, index = 0) {
+  player.radio = null;
   const start = items[index];
   const list = items.filter((item) => sourcesOf(item).length).map(withId);
   if (!list.length) return;
@@ -261,6 +283,11 @@ function toggle() {
 }
 
 function next() {
+  if (player.radio && player.index >= player.queue.length - 1) {  // radio: the next batch
+    const more = radioBatch().map(withId);
+    player.queue.push(...more);
+    if (player.original) player.original.push(...more);
+  }
   if (player.index < player.queue.length - 1) { player.index += 1; playCurrent(); }
   else if (player.repeat === "all" && player.queue.length) { player.index = 0; playCurrent(); }
   else { stopAll(); player.paused = true; renderProgress(); }

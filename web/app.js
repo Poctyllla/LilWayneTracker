@@ -178,7 +178,7 @@ const VIEWS = {
     const era = eraOf(song);
     return `<tr data-id="${song.id}">
       <td class="thumb">${songCover(song, "small")}</td>
-      <td><div class="title">${esc(song.title)}</div>${songMeta(song)}${playButton(song.play, `data-play-song="${song.key || song.id}"`)}</td>
+      <td><div class="title">${favButton(song.id)}${esc(song.title)}</div>${songMeta(song)}${playButton(song.play, `data-play-song="${song.key || song.id}"`)}</td>
       <td class="era-cell">${song.album ? `<a class="album-link" href="#/release/${song.album.id}" title="Album / project">${esc(song.album.title)}</a>`
         : `<span class="muted">No release</span>`}
         <div class="era-line">${era ? `<a href="#/era/${era.id}">${esc(eraName(era))}</a>` : "No era"}</div></td>
@@ -190,7 +190,7 @@ const VIEWS = {
   grid: (songs) => `<div class="grid">${songs.map((song) => {
     const era = eraOf(song);
     return `<a class="card" href="#/song/${song.id}">${songCover(song, "card-cover")}
-      <div class="card-body"><div class="title">${esc(song.title)}</div>
+      <div class="card-body"><div class="title">${favButton(song.id)}${esc(song.title)}</div>
         ${songArtist(song) ? `<div class="artist">${esc(songArtist(song))}</div>` : ""}
         <div class="card-foot">${badge(song.status)}<span class="date">${esc((song.date || "").slice(0, 4))}</span>
           ${song.file ? `<span class="file">♪</span>` : ""}</div>
@@ -200,7 +200,7 @@ const VIEWS = {
   }).join("")}</div>`,
   compact: (songs) => `<table class="rows compact">${songs.map((song) => {
     const era = eraOf(song);
-    return `<tr data-id="${song.id}"><td class="play-cell">${playButton(song.play, `data-play-song="${song.key || song.id}"`, "")}</td><td class="title">${esc(song.title)}</td>
+    return `<tr data-id="${song.id}"><td class="play-cell">${playButton(song.play, `data-play-song="${song.key || song.id}"`, "")}</td><td class="title">${favButton(song.id)}${esc(song.title)}</td>
       <td class="artist">${esc(songArtist(song))}</td>
       <td class="artist">${song.album ? esc(song.album.title) : ""}</td>
       <td class="artist">${esc(era ? eraName(era) : "")}</td>
@@ -382,7 +382,8 @@ async function openSong(id) {
         · ${listed.era ? `<a href="#/era/${listed.era}">${esc(eraName(song.era))}</a>` : esc(song.era ? eraName(song.era) : "no era")} ${badge(song.availability)}
         ${song.former ? `<span class="tag former" title="Known ${esc(fmtDate(song.former.known))}, released ${esc(fmtDate(song.former.released))}">Leaked before release</span>` : ""}</div>
       ${song.aliases.length ? `<p class="muted">Also known as: ${esc(song.aliases.join(", "))}</p>` : ""}
-      ${main ? `<div class="head-play">${playButton(main.play, `data-play-version="${main.id}"`)}</div>` : ""}
+      <div class="head-play">${main ? playButton(main.play, `data-play-version="${main.id}"`) : ""}
+        ${favButton(song.id, true)}<button type="button" class="act ghost" data-playlist-add="${song.id}">＋ Playlist</button></div>
       ${song.listen.length ? `<div class="listen">${serviceLinks(song.listen.map((l) => l.url))}</div>` : ""}
       ${lyricsLink(song)}
     </div></div>
@@ -1311,6 +1312,139 @@ function exportCsv() {
 }
 $("export-csv").addEventListener("click", exportCsv);
 
+/* ---------- library: favourites, playlists, radio (stored in this browser) ---------- */
+const FAV_KEY = "lwt-favorites", LISTS_KEY = "lwt-playlists";
+function readStore(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch (e) { return fallback; } }
+function writeStore(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* storage unavailable */ } }
+const favorites = () => new Set(readStore(FAV_KEY, []));
+const playlists = () => readStore(LISTS_KEY, []);
+function favButton(id, big) {
+  const on = favorites().has(id);
+  return `<button type="button" class="fav-btn${on ? " on" : ""}${big ? " big" : ""}" data-fav="${id}" aria-pressed="${on}"
+    title="${on ? "Remove from favourites" : "Add to favourites"}">${on ? "♥" : "♡"}</button>`;
+}
+function toggleFavorite(id) {
+  const fav = favorites();
+  if (fav.has(id)) fav.delete(id); else fav.add(id);
+  writeStore(FAV_KEY, [...fav]);
+  for (const b of document.querySelectorAll(`[data-fav="${id}"]`)) {
+    const on = fav.has(id);
+    b.classList.toggle("on", on); b.textContent = on ? "♥" : "♡"; b.setAttribute("aria-pressed", on);
+  }
+  if (!$("library-view").hidden) renderLibrary();
+}
+function addToPlaylist(songId, listId) {
+  const lists = playlists();
+  let list = lists.find((l) => l.id === listId);
+  if (!list) {
+    const name = prompt("Name of the new playlist", "My playlist");
+    if (!name) return;
+    list = { id: `pl${Date.now()}`, name: name.slice(0, 80), songs: [] };
+    lists.push(list);
+  }
+  if (!list.songs.includes(songId)) list.songs.push(songId);
+  writeStore(LISTS_KEY, lists);
+  if (window.flash) flash(`Added to “${list.name}”`);
+}
+function songsById(ids) {
+  const byId = new Map(state.songs.map((s) => [s.id, s]));
+  return ids.map((id) => byId.get(id)).filter(Boolean);
+}
+function libraryRows(songs, listId) {
+  return songs.map((s, i) => `<div class="lib-row"><span class="lib-num">${i + 1}</span>${songCover(s, "tiny")}
+    <a href="#/song/${s.id}" class="lib-title">${esc(s.title)}<span class="muted">${esc([songArtist(s), s.album ? s.album.title : ""].filter(Boolean).join(" · "))}</span></a>
+    ${playButton(s.play, `data-play-song="${s.id}"`, "")}
+    ${listId ? `<button type="button" class="icon-mini" data-move="${listId}|${s.id}|-1" title="Up">↑</button><button type="button" class="icon-mini" data-move="${listId}|${s.id}|1" title="Down">↓</button>` : ""}
+    <button type="button" class="icon-mini" data-remove="${listId || "fav"}|${s.id}" title="Remove">✕</button></div>`).join("");
+}
+function renderLibrary() {
+  if (!state.songs) return;
+  const fav = songsById([...favorites()]);
+  const lists = playlists();
+  const eraOptions = state.eras.map((e) => `<option value="${e.id}">${esc(eraName(e))}</option>`).join("");
+  $("library").innerHTML = `
+    <section class="home-card lib-radio"><h3>Radio</h3>
+      <p class="muted">An endless shuffle: new songs are added while it plays (only songs that can be played).</p>
+      <div class="lib-actions">
+        <button type="button" class="act" data-radio="all">🔀 All songs</button>
+        <button type="button" class="act" data-radio="released">Released</button>
+        <button type="button" class="act" data-radio="leaked">Leaks</button>
+        <button type="button" class="act" data-radio="fav">♥ Favourites</button>
+        <span class="lib-era"><select id="radio-era" aria-label="Era">${eraOptions}</select><button type="button" class="act" data-radio="era">Era radio</button></span>
+      </div></section>
+    <section class="home-card"><div class="lib-head"><h3>Favourites <span class="muted">${fav.length}</span></h3>
+      ${fav.length ? `<button type="button" class="act ghost" data-play-list="fav">▶ Play</button><button type="button" class="act ghost" data-radio="fav">🔀 Shuffle</button>` : ""}</div>
+      ${fav.length ? libraryRows(fav) : `<p class="muted">Tap ♡ on a song to keep it here.</p>`}</section>
+    <section class="home-card"><div class="lib-head"><h3>Playlists <span class="muted">${lists.length}</span></h3>
+      <button type="button" class="act ghost" id="new-playlist">＋ New playlist</button></div>
+      ${lists.length ? lists.map((l) => {
+        const songs = songsById(l.songs);
+        return `<details class="lib-list" ${state.openList === l.id ? "open" : ""} data-list="${l.id}"><summary><strong>${esc(l.name)}</strong> <span class="muted">${plural(songs.length, "song")}</span></summary>
+          <div class="lib-actions"><button type="button" class="act ghost" data-play-list="${l.id}">▶ Play</button>
+            <button type="button" class="act ghost" data-radio="list:${l.id}">🔀 Shuffle</button>
+            <button type="button" class="act ghost" data-rename="${l.id}">Rename</button>
+            <button type="button" class="act ghost" data-delete-list="${l.id}">Delete</button></div>
+          ${songs.length ? libraryRows(songs, l.id) : `<p class="muted">Add songs with “＋ Playlist” in a song window.</p>`}</details>`;
+      }).join("") : `<p class="muted">No playlists yet.</p>`}</section>
+    <p class="src">Favourites and playlists are kept in this browser only.</p>`;
+}
+document.addEventListener("click", (event) => {
+  const fav = event.target.closest("[data-fav]");
+  if (fav) { event.preventDefault(); event.stopPropagation(); toggleFavorite(Number(fav.dataset.fav)); return; }
+  const add = event.target.closest("[data-playlist-add]");
+  if (add) {
+    event.preventDefault();
+    const lists = playlists();
+    document.querySelector(".playlist-pop")?.remove();
+    add.insertAdjacentHTML("afterend", `<div class="playlist-pop">${lists.map((l) => `<button type="button" data-pl-pick="${l.id}" data-song="${add.dataset.playlistAdd}">${esc(l.name)}</button>`).join("")}
+      <button type="button" data-pl-pick="" data-song="${add.dataset.playlistAdd}">＋ New playlist…</button></div>`);
+    return;
+  }
+  const pick = event.target.closest("[data-pl-pick]");
+  if (pick) { addToPlaylist(Number(pick.dataset.song), pick.dataset.plPick); pick.parentElement.remove(); return; }
+  if (!event.target.closest(".playlist-pop")) document.querySelector(".playlist-pop")?.remove();
+}, true);
+$("library").addEventListener("click", (event) => {
+  const t = event.target.closest("button");
+  if (!t) return;
+  const lists = playlists();
+  if (t.dataset.radio) {
+    const r = t.dataset.radio;
+    let pool = state.songs, label = "all songs";
+    if (r === "released") { pool = state.songs.filter((s) => s.status === "released"); label = "released songs"; }
+    if (r === "leaked") { pool = state.songs.filter((s) => s.status === "leaked"); label = "leaks"; }
+    if (r === "fav") { pool = songsById([...favorites()]); label = "favourites"; }
+    if (r === "era") { const e = $("radio-era").value; pool = state.songs.filter((s) => String(s.era) === e); label = eraName(state.eraById.get(Number(e))); }
+    if (r.startsWith("list:")) { const l = lists.find((x) => x.id === r.slice(5)); pool = l ? songsById(l.songs) : []; label = l ? l.name : ""; }
+    window.startRadio(pool, label);
+  } else if (t.dataset.playList) {
+    const ids = t.dataset.playList === "fav" ? [...favorites()] : (lists.find((l) => l.id === t.dataset.playList) || { songs: [] }).songs;
+    window.playSongs(songsById(ids));
+  } else if (t.id === "new-playlist") {
+    const name = prompt("Name of the new playlist", "My playlist");
+    if (name) { lists.push({ id: `pl${Date.now()}`, name: name.slice(0, 80), songs: [] }); writeStore(LISTS_KEY, lists); renderLibrary(); }
+  } else if (t.dataset.rename) {
+    const l = lists.find((x) => x.id === t.dataset.rename);
+    const name = l && prompt("New name", l.name);
+    if (name) { l.name = name.slice(0, 80); writeStore(LISTS_KEY, lists); state.openList = l.id; renderLibrary(); }
+  } else if (t.dataset.deleteList) {
+    const l = lists.find((x) => x.id === t.dataset.deleteList);
+    if (l && confirm(`Delete the playlist “${l.name}”?`)) { writeStore(LISTS_KEY, lists.filter((x) => x !== l)); renderLibrary(); }
+  } else if (t.dataset.remove) {
+    const [where, id] = t.dataset.remove.split("|");
+    if (where === "fav") toggleFavorite(Number(id));
+    else { const l = lists.find((x) => x.id === where); l.songs = l.songs.filter((s) => s !== Number(id)); writeStore(LISTS_KEY, lists); state.openList = where; renderLibrary(); }
+  } else if (t.dataset.move) {
+    const [where, id, step] = t.dataset.move.split("|");
+    const l = lists.find((x) => x.id === where), i = l.songs.indexOf(Number(id)), j = i + Number(step);
+    if (i >= 0 && j >= 0 && j < l.songs.length) { [l.songs[i], l.songs[j]] = [l.songs[j], l.songs[i]]; writeStore(LISTS_KEY, lists); state.openList = where; renderLibrary(); }
+  }
+});
+$("shuffle-shown").addEventListener("click", () => {
+  const songs = (state.shown || []).filter((s) => !s.key);  // whole songs (a version filter shows versions)
+  window.startRadio(songs.length ? songs : state.shown || [], "songs shown");
+});
+
 /* ---------- charts and certifications (Wikipedia, charts_source.py) ---------- */
 const CHART_NAMES = { US: "Billboard Hot 100", "US R&B/HH": "Hot R&B/Hip-Hop Songs", "US Rap": "Hot Rap Songs", CAN: "Canadian Hot 100",
                       UK: "UK Singles Chart", AUS: "ARIA", NZ: "New Zealand", IRL: "Ireland", FRA: "France", SWI: "Switzerland" };
@@ -1616,7 +1750,7 @@ document.addEventListener("keydown", (event) => {
 /* ---------- routing (#/songs, #/song/12, #/release/8, #/artist/45 ...) ---------- */
 
 const SECTION_NAMES = { home: "Home", about: "About Lil Wayne", songs: "Songs", eras: "Eras", timeline: "Timeline", releases: "Releases",
-                        people: "People", videos: "Videos", charts: "Charts", stats: "Statistics", completeness: "Completeness" };
+                        people: "People", library: "Library", videos: "Videos", charts: "Charts", stats: "Statistics", completeness: "Completeness" };
 
 function setDrawer(open) {
   $("drawer").hidden = !open;
@@ -1634,6 +1768,7 @@ function showTab(name) {
   if (name === "completeness") renderCompleteness().catch((e) => { $("completeness").textContent = e.message; });
   if (name === "videos") renderVideos().catch((e) => { $("video-grid").textContent = e.message; });
   if (name === "home") renderHome().catch((e) => { $("home").textContent = e.message; });
+  if (name === "library") renderLibrary();
   if (name === "charts") renderCharts().catch((e) => { $("charts").textContent = e.message; });
   if (name === "about" && !state.aboutLoaded) renderAbout().catch((e) => { $("about").textContent = e.message; });
   if (name === "timeline" && !state.timeline) renderTimeline().catch((e) => { $("timeline").textContent = e.message; });
@@ -2102,6 +2237,7 @@ document.addEventListener("keydown", (event) => {  // before the other Esc handl
 /* ---------- icons in the menu and the settings sections ---------- */
 const NAV_ICONS = {
   home: "M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z",
+  library: "M12 21.35 10.55 20C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54z",
   songs: "M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z",
   eras: "M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6a7 7 0 1 1 2.05 4.95l-1.42 1.42A9 9 0 1 0 13 3zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z",
   timeline: "M3 5h2v14H3zm4 2h14v2H7zm0 4h10v2H7zm0 4h14v2H7z",
