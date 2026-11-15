@@ -501,6 +501,7 @@ def timeline(connection):
     from sources (Genius dates of demos / snippets ...)."""
     cover = "cover_file" if has_column(connection, "releases", "cover_file") else "NULL AS cover_file"
     years, seen = {}, set()
+    first_ids = {release["id"] for release in first_editions(connection)}
     editions = dict(connection.execute("""
         SELECT COALESCE(musicbrainz_release_group_id, 'release:' || id), count(*) FROM releases
         WHERE discography = 'official' GROUP BY 1"""))
@@ -514,7 +515,8 @@ def timeline(connection):
             year["bootlegs"] += 1
             year["bootleg_list"].append({"id": row["id"], "title": row["title"], "date": row["release_date"],
                                          "cover_file": row["cover_file"]})
-        elif row["group_key"] not in seen:
+        elif row["id"] in first_ids and row["group_key"] not in seen:
+            # the album's first edition: an exact date before a year-only one (Rebirth 2010-02-02, not "2009")
             seen.add(row["group_key"])
             year["releases"].append({"id": row["id"], "title": row["title"], "type": row["release_type"],
                                      "date": row["release_date"], "cover_file": row["cover_file"],

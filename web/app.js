@@ -1376,9 +1376,145 @@ function yearEras(year) {
   return { active, marks };
 }
 
+/* ---------- timeline: horizontal (eras as bands, covers on lanes, leaks per year) or a list ---------- */
+const TIMELINE_VIEWS = { horizontal: "↔ Horizontal", list: "☰ List" };
+const TL_LANES = [
+  { key: "albums", label: "Albums", types: ["studio_album", "collaboration_album", "group_album"], size: 84, caption: true },
+  { key: "mixtapes", label: "Mixtapes", types: ["mixtape"], size: 60, caption: false },
+  { key: "singles", label: "Singles & EPs", types: ["single", "group_single", "ep"], size: 42, caption: false },
+];
+
+// "2008-06-10" -> 2008.44; a year / month only sits in its middle (marked as approximate)
+function fractionalYear(date) {
+  const [y, m, d] = String(date || "").split("-").map(Number);
+  if (!y) return null;
+  if (!m) return y + 0.5;
+  if (!d) return y + (m - 0.5) / 12;
+  return y + (m - 1) / 12 + (d - 1) / 365;
+}
+
 async function renderTimeline() {
   state.timeline = state.timeline || await getJSON("/api/v1/timeline");
-  $("timeline").innerHTML = `<div class="timeline">${state.timeline.map((y) => {
+  try { state.timelineView = TIMELINE_VIEWS[state.timelineView] ? state.timelineView : localStorage.getItem("lwt-timeline-view") || "horizontal"; }
+  catch (e) { state.timelineView = state.timelineView || "horizontal"; }
+  if (!TIMELINE_VIEWS[state.timelineView]) state.timelineView = "horizontal";
+  const bar = `<div class="view-bar"><span class="muted">${state.timelineView === "horizontal"
+      ? "Scroll or drag sideways · click a cover or an era" : `${plural(state.timeline.length, "year")}`}</span>
+    <div class="htl-tools">${state.timelineView === "horizontal" ? `<button type="button" class="menu-button plain" data-zoom="-1" title="Zoom out">−</button>
+      <button type="button" class="menu-button plain" data-zoom="1" title="Zoom in">+</button>` : ""}
+      <details class="menu" id="timeline-view-menu"><summary class="menu-button">${TIMELINE_VIEWS[state.timelineView]}</summary>
+        <div class="menu-panel narrow">${Object.entries(TIMELINE_VIEWS).map(([key, label]) =>
+          `<button data-timeline-view="${key}" class="${key === state.timelineView ? "on" : ""}">${label}</button>`).join("")}</div></details></div></div>`;
+  $("timeline").innerHTML = bar + (state.timelineView === "horizontal" ? timelineHorizontal(state.timeline) : timelineList());
+  if (state.timelineView === "horizontal") wireTimelineScroll();
+}
+
+function timelineHorizontal(data) {
+  const scale = state.timelineScale ||= 240;  // pixels per year
+  const first = Math.min(...data.map((y) => Number(y.year)));
+  const last = Math.max(new Date().getFullYear(), ...data.map((y) => Number(y.year)));
+  const left = 24, x = (year) => left + (year - first) * scale;
+  const width = x(last + 1) + 24;
+  const ERA_HEAD = 46, LANE_GAP = 18, CHART = 110;
+  // releases on lanes; covers that would overlap go to the next row of the lane
+  let top = ERA_HEAD + 10;
+  const labels = [];  // lane names stay at the left edge while the canvas scrolls
+  const laneHtml = TL_LANES.map((lane) => {
+    const items = data.flatMap((y) => y.releases).filter((r) => lane.types.includes(r.type))
+      .map((r) => ({ ...r, at: fractionalYear(r.date) })).filter((r) => r.at).sort((a, b) => a.at - b.at);
+    const rows = [];
+    const placed = items.map((r) => {
+      const cx = x(r.at) - lane.size / 2;
+      let row = rows.findIndex((end) => cx >= end + 6);
+      if (row < 0) { rows.push(0); row = rows.length - 1; }
+      rows[row] = cx + lane.size;
+      return { r, cx, row };
+    });
+    const rowHeight = lane.size + (lane.caption ? 34 : 8);
+    const laneTop = top;
+    top += Math.max(1, rows.length) * rowHeight + LANE_GAP;
+    labels.push(`<div class="htl-lane-label" style="top:${laneTop - 2}px">${esc(lane.label)}</div>`);
+    return placed.map(({ r, cx, row }) => {
+      const approx = !/^\d{4}-\d{2}-\d{2}$/.test(r.date);
+      const type = (RELEASE_TYPES[r.type] || r.type).replace(/s$/, "");
+      return `<a class="htl-item${approx ? " approx" : ""}" href="#/release/${r.id}" style="left:${cx}px;top:${laneTop + row * rowHeight}px;width:${lane.size}px"
+        data-tip="${esc(`${r.title}|${type} · ${fmtDate(r.date)}${approx ? " (date not exact)" : ""}${r.editions > 1 ? `|${r.editions} editions` : ""}`)}">
+        <img src="covers/${esc(r.cover_file || "artist.jpg")}" alt="" loading="lazy" style="width:${lane.size}px;height:${lane.size}px">
+        ${lane.caption ? `<span class="htl-caption">${esc(r.title)}</span>` : ""}</a>`;
+    }).join("");
+  }).join("");
+  const chartTop = top + 8, height = chartTop + CHART + 34;
+  // eras as bands over the whole height
+  const eras = state.eras.map((era, i) => {
+    const from = Math.max(first, fractionalYear(era.start_date) ?? first), to = Math.min(last + 1, fractionalYear(era.end_date) ?? last + 1);
+    if (to <= first || from >= last + 1) return "";
+    return `<a class="htl-era ${i % 2 ? "odd" : "even"}" href="#/era/${era.id}" style="left:${x(from)}px;width:${Math.max(2, x(to) - x(from))}px;height:${height}px"
+      data-tip="${esc(`${eraName(era)}|${fmtDate(era.start_date) || "…"} – ${era.end_date ? fmtDate(era.end_date) : "today"}`)}">
+      <span class="htl-era-label">${coverImg(era, "tiny")}<span>${esc(eraName(era))}</span></span></a>`;
+  }).join("");
+  const years = [];
+  for (let y = first; y <= last + 1; y++) {
+    years.push(`<div class="htl-year" style="left:${x(y)}px;height:${height - ERA_HEAD}px;top:${ERA_HEAD}px"><span>${y <= last ? y : ""}</span></div>`);
+  }
+  // leaks per year: bootlegs released + unreleased versions first known that year (one series: the title names it)
+  const leaks = data.map((y) => ({ year: Number(y.year), bootlegs: y.bootlegs || 0, known: y.first_known || 0 }));
+  const max = Math.max(1, ...leaks.map((l) => l.bootlegs + l.known));
+  const barWidth = Math.min(28, scale * 0.35);
+  const bars = leaks.filter((l) => l.bootlegs + l.known).map((l) => {
+    const total = l.bootlegs + l.known, h = Math.max(2, (total / max) * (CHART - 22));
+    return `<div class="htl-bar" style="left:${x(l.year + 0.5) - barWidth / 2}px;top:${chartTop + CHART - h}px;width:${barWidth}px;height:${h}px"
+      data-tip="${esc(`${l.year}|${plural(l.bootlegs, "bootleg")}|${plural(l.known, "unreleased version")} first known`)}"></div>
+      ${h > 14 || total >= max * 0.5 ? `<span class="htl-bar-value" style="left:${x(l.year + 0.5)}px;top:${chartTop + CHART - h - 18}px">${total}</span>` : ""}`;
+  }).join("");
+  const now = new Date(), today = now.getFullYear() + now.getMonth() / 12;
+  labels.push(`<div class="htl-lane-label" style="top:${chartTop - 4}px">Leaks per year: bootlegs and unreleased versions first known</div>`);
+  return `<div class="htl-frame"><div class="htl-labels">${labels.join("")}</div>
+    <div class="htl-scroll" id="htl-scroll"><div class="htl-canvas" style="width:${width}px;height:${height}px">
+    ${eras}${years.join("")}${laneHtml}
+    <div class="htl-axis" style="top:${chartTop + CHART}px;width:${width}px"></div>${bars}
+    <div class="htl-today" style="left:${x(today)}px;height:${height - ERA_HEAD}px;top:${ERA_HEAD}px" title="Today"></div>
+  </div></div></div>`;
+}
+
+// Drag or wheel to scroll sideways; zoom keeps the middle of the view in place.
+function wireTimelineScroll() {
+  const box = $("htl-scroll");
+  if (!box) return;
+  if (state.timelineCenter != null) box.scrollLeft = state.timelineCenter * box.scrollWidth - box.clientWidth / 2;
+  let drag = null;
+  box.addEventListener("pointerdown", (event) => { drag = { x: event.clientX, left: box.scrollLeft, moved: false }; });
+  box.addEventListener("pointermove", (event) => {
+    if (!drag) return;
+    if (Math.abs(event.clientX - drag.x) > 5) drag.moved = true;
+    if (drag.moved) box.scrollLeft = drag.left - (event.clientX - drag.x);
+  });
+  const stop = () => { setTimeout(() => { drag = null; }, 0); };
+  box.addEventListener("pointerup", stop);
+  box.addEventListener("pointerleave", () => { drag = null; });
+  box.addEventListener("click", (event) => { if (drag && drag.moved) { event.preventDefault(); event.stopPropagation(); } }, true);
+  box.addEventListener("wheel", (event) => {
+    if (Math.abs(event.deltaY) > Math.abs(event.deltaX) && !event.shiftKey) {
+      box.scrollLeft += event.deltaY;
+      event.preventDefault();
+    }
+  }, { passive: false });
+  box.addEventListener("scroll", () => { state.timelineCenter = (box.scrollLeft + box.clientWidth / 2) / box.scrollWidth; }, { passive: true });
+}
+$("timeline").addEventListener("click", (event) => {
+  const zoom = event.target.closest("[data-zoom]");
+  const view = event.target.closest("[data-timeline-view]");
+  if (zoom) {
+    state.timelineScale = Math.max(110, Math.min(900, (state.timelineScale || 240) * (zoom.dataset.zoom === "1" ? 1.4 : 1 / 1.4)));
+    renderTimeline();
+  } else if (view) {
+    state.timelineView = view.dataset.timelineView;
+    try { localStorage.setItem("lwt-timeline-view", state.timelineView); } catch (e) { /* storage unavailable */ }
+    renderTimeline();
+  }
+});
+
+function timelineList() {
+  return `<div class="timeline">${state.timeline.map((y) => {
     const { active, marks } = yearEras(y.year);
     return `
     <section class="year"><div class="year-label">${esc(y.year)}

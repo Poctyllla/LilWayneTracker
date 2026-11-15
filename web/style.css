@@ -741,3 +741,41 @@ body.has-player .modal-backdrop { bottom: 76px; }
 /* the line chart scales with its width (viewBox 760): these sizes render at ~13-15px */
 .line-svg .axis-text { font-size: 9px; }
 .line-svg .end-label { font-size: 10px; }
+
+/* ---------- horizontal timeline ---------- */
+.htl-tools { display: flex; gap: 6px; align-items: center; }
+.htl-tools [data-zoom] { width: 38px; font-size: 18px; padding: 4px 0; }
+.htl-scroll { overflow-x: auto; overflow-y: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface);
+              cursor: grab; user-select: none; scrollbar-width: thin; }
+.htl-scroll:active { cursor: grabbing; }
+.htl-canvas { position: relative; }
+.htl-era { position: absolute; top: 0; display: block; text-decoration: none; color: var(--text); }
+.htl-era.even { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.htl-era.odd { background: transparent; }
+.htl-era:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.htl-era-label { position: sticky; left: 0; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 10px 8px 0;
+                 font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; }
+.htl-era-label > span { overflow: hidden; text-overflow: ellipsis; }
+.htl-year { position: absolute; width: 0; border-left: 1px solid var(--line); pointer-events: none; }
+.htl-year span { position: absolute; top: 2px; left: 6px; font-size: 13px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.htl-lane-label { position: absolute; left: 8px; font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+                  color: var(--muted); pointer-events: none; z-index: 2; }
+.htl-item { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 4px; text-decoration: none;
+            color: var(--text); z-index: 3; }
+.htl-item img { object-fit: cover; border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.28); transition: transform .15s; background: var(--surface-2); }
+.htl-item:hover { z-index: 5; }
+.htl-item:hover img { transform: scale(1.12); }
+.htl-item.approx img { outline: 2px dashed var(--muted); outline-offset: 2px; }
+.htl-caption { width: 120%; font-size: 12px; font-weight: 600; text-align: center; line-height: 1.2; overflow: hidden;
+               display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; text-shadow: 0 1px 2px var(--surface); }
+.htl-chart-label { position: absolute; left: 8px; font-size: 12px; font-weight: 600; color: var(--muted); z-index: 2; }
+.htl-axis { position: absolute; left: 0; height: 1px; background: var(--line); }
+.htl-bar { position: absolute; background: var(--leaked); border-radius: 4px 4px 0 0; z-index: 2; }
+.htl-bar:hover { filter: brightness(1.15); }
+.htl-bar-value { position: absolute; transform: translateX(-50%); font-size: 12px; font-weight: 600; color: var(--text);
+                 font-variant-numeric: tabular-nums; z-index: 2; pointer-events: none; }
+.htl-today { position: absolute; width: 0; border-left: 2px solid var(--accent); z-index: 1; pointer-events: none; }
+.htl-frame { position: relative; }
+.htl-labels { position: absolute; inset: 0; pointer-events: none; z-index: 6; }
+.htl-labels .htl-lane-label { left: 10px; padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--surface) 85%, transparent);
+                              backdrop-filter: blur(4px); }
