@@ -400,3 +400,30 @@ class EraInfoTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AudioServiceStorageTests(unittest.TestCase):
+    """Library audio is played from the Audio Service's storage; the old path is the fallback."""
+
+    def test_service_copy_first_then_original(self):
+        import hashlib
+        import audio_providers
+        data = b"ID3" + bytes(500)
+        sha = hashlib.sha256(data).hexdigest()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            original = root / "library" / "song.mp3"
+            original.parent.mkdir()
+            original.write_bytes(data)
+            connection = sqlite3.connect(":memory:")
+            connection.execute("CREATE TABLE files (id INTEGER PRIMARY KEY, file_path TEXT, sha256 TEXT)")
+            connection.execute("INSERT INTO files VALUES (1, ?, ?)", (str(original), sha))
+            with mock.patch.dict("os.environ", {"AUDIO_SERVICE_DATA": str(root / "service")}):
+                self.assertEqual(audio_providers.audio_file(connection, 1), (original, "audio/mpeg"))
+                stored = root / "service" / "objects" / sha[:2] / sha[2:4] / sha
+                stored.parent.mkdir(parents=True)
+                stored.write_bytes(data)
+                original.unlink()  # moved: only the service copy is left
+                self.assertEqual(audio_providers.audio_file(connection, 1), (stored, "audio/mpeg"))
+                connection.execute("UPDATE files SET sha256 = '../../x'")
+                self.assertIsNone(audio_providers.audio_file(connection, 1))

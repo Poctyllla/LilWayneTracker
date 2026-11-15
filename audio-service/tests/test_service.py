@@ -113,3 +113,58 @@ class ApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LibraryImportTests(unittest.TestCase):
+    def setUp(self):
+        import hashlib
+        import sqlite3
+        self.directory = tempfile.TemporaryDirectory()
+        root = Path(self.directory.name)
+        self.settings = Settings(data_dir=root / "service")
+        self.catalogue = root / "catalogue.db"
+        (root / "a.mp3").write_bytes(AUDIO)
+        (root / "b.mp3").write_bytes(AUDIO[::-1])
+        c = sqlite3.connect(self.catalogue)
+        c.execute("CREATE TABLE files (id INTEGER PRIMARY KEY, version_id INTEGER, file_path TEXT, format TEXT, "
+                  "duration REAL, file_size INTEGER, bitrate INTEGER, sample_rate INTEGER, sha256 TEXT)")
+        for i, (name, data, version) in enumerate([("a.mp3", AUDIO, 5), ("b.mp3", AUDIO[::-1], 6)], 1):
+            c.execute("INSERT INTO files VALUES (?, ?, ?, 'mp3', 60, ?, 128000, 44100, ?)",
+                      (i, version, str(root / name), len(data), hashlib.sha256(data).hexdigest()))
+        c.commit()
+        c.close()
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def run_import(self, apply=True):
+        from audio_service import library_import
+        return library_import.run(apply, self.catalogue, self.settings, progress=lambda *_: None)
+
+    def test_dry_run_changes_nothing(self):
+        report = self.run_import(apply=False)
+        self.assertEqual((report["files"], report["bytes_to_copy"]), (2, 2 * len(AUDIO)))
+        self.assertFalse(self.settings.storage_dir.exists())
+
+    def test_import_is_private_linked_and_repeatable(self):
+        first = self.run_import()
+        self.assertEqual((first["copied"], first["linked"]), (2, 2))
+        again = self.run_import()
+        self.assertEqual((again["copied"], again["already_stored"], again["linked"]), (0, 2, 2))
+        client = TestClient(create_app(self.settings))
+        try:
+            assets = client.get("/v1/versions/5/assets").json()
+            self.assertEqual([a["rights"] for a in assets], ["private"])
+            self.assertEqual(client.get(assets[0]["stream_url"]).content, AUDIO)
+            public = TestClient(create_app(self.settings, public=True))
+            self.assertEqual(public.get("/v1/versions/5/assets").json(), [])  # never public
+            public.app.state.connection.close()
+        finally:
+            client.app.state.connection.close()
+
+    def test_originals_can_go_after_import(self):
+        self.run_import()
+        for name in ("a.mp3", "b.mp3"):
+            (Path(self.directory.name) / name).unlink()
+        report = self.run_import()  # nothing lost: everything is already stored
+        self.assertEqual((report["already_stored"], report["linked"], report["missing"]), (2, 2, []))

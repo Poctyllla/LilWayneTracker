@@ -356,8 +356,8 @@ class AudioProviderTests(unittest.TestCase):
             song = Path(folder) / "a.mp3"
             song.write_bytes(b"x")
             connection = sqlite3.connect(":memory:")
-            connection.executescript("CREATE TABLE files (id INTEGER PRIMARY KEY, version_id INTEGER, file_path TEXT);")
-            connection.executemany("INSERT INTO files VALUES (?, 1, ?)",
+            connection.executescript("CREATE TABLE files (id INTEGER PRIMARY KEY, version_id INTEGER, file_path TEXT, sha256 TEXT);")
+            connection.executemany("INSERT INTO files VALUES (?, 1, ?, NULL)",
                                    [(1, str(song)), (2, str(Path(folder) / "gone.mp3")), (3, str(Path(folder) / "a.txt"))])
             self.assertEqual(audio_providers.audio_file(connection, 1), (song, "audio/mpeg"))
             for missing in (2, 3, 99):

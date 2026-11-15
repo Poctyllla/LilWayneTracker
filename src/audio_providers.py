@@ -15,6 +15,7 @@ web/player.js; the catalogue queries do not change.
     private_keys()         play fields that must not leave this computer
 """
 
+import os
 import re
 from pathlib import Path
 
@@ -107,13 +108,33 @@ class LocalFileProvider:
                 "url": f"/api/v1/stream/{file_id}", "supports_range": True}
 
     def resolve(self, connection, file_id):
-        """(path, content type) of a file that may be streamed, or None."""
-        row = connection.execute("SELECT file_path FROM files WHERE id = ?", (file_id,)).fetchone()
+        """(path, content type) of a file that may be streamed, or None.  The Audio
+        Service's storage (by sha256) comes first; file_path is where the file came from."""
+        row = connection.execute("SELECT file_path, sha256 FROM files WHERE id = ?", (file_id,)).fetchone()
         if row is None:
             return None
-        path = Path(row[0])
-        kind = AUDIO_TYPES.get(path.suffix.lower())
-        return (path, kind) if kind and path.is_file() else None
+        original = Path(row[0])
+        kind = AUDIO_TYPES.get(original.suffix.lower())
+        if not kind:
+            return None
+        stored = service_object(row[1])
+        if stored is not None:
+            return stored, kind
+        return (original, kind) if original.is_file() else None
+
+
+def service_storage():
+    """The Audio Service's object folder (audio-service/data/objects unless AUDIO_SERVICE_DATA says otherwise)."""
+    data = os.environ.get("AUDIO_SERVICE_DATA")
+    return (Path(data) if data else Path(__file__).resolve().parent.parent / "audio-service" / "data") / "objects"
+
+
+def service_object(sha256):
+    """The stored copy of a file in the Audio Service, or None."""
+    if not sha256 or len(sha256) != 64 or not all(ch in "0123456789abcdef" for ch in sha256):
+        return None
+    path = service_storage() / sha256[:2] / sha256[2:4] / sha256
+    return path if path.is_file() else None
 
 
 PROVIDERS = [SpotifyProvider(), AppleMusicProvider(), LocalFileProvider()]
