@@ -163,6 +163,17 @@ def release_credits(connection):
     return credits
 
 
+ARTIST_IMAGES_PATH = Path(__file__).resolve().parent.parent / "data" / "artist_images.json"
+
+
+def artist_images():
+    """{artist_id: image file under web/covers/} from people_images.py (empty without it)."""
+    try:
+        return {int(k): v["file"] for k, v in json.loads(ARTIST_IMAGES_PATH.read_text(encoding="utf-8")).items()}
+    except (OSError, ValueError):
+        return {}
+
+
 def has_column(connection, table, column):
     return any(row[1] == column for row in connection.execute(f"PRAGMA table_info({table})"))
 
@@ -245,7 +256,7 @@ def artist(connection, artist_id):
     for song in songs_by_id.values():
         for role in song["roles"]:
             role_counts[role] = role_counts.get(role, 0) + 1
-    return {"id": head["id"], "name": head["name"], "roles": role_counts,
+    return {"id": head["id"], "name": head["name"], "roles": role_counts, "image": artist_images().get(head["id"]),
             "songs": sorted(songs_by_id.values(), key=lambda s: s["title"].casefold())}
 
 
@@ -265,9 +276,10 @@ def people(connection, limit=300):
         if recording_id in years:
             first, last = span.get(artist_id, (years[recording_id], years[recording_id]))
             span[artist_id] = (min(first, years[recording_id]), max(last, years[recording_id]))
+    images = artist_images()
     return [{"id": row["id"], "name": row["name"], "songs": row["songs"],
              "roles": sorted(set((row["roles"] or "").split(",")) - {""}),
-             "years": list(span.get(row["id"], ()))} for row in rows]
+             "years": list(span.get(row["id"], ())), "image": images.get(row["id"])} for row in rows]
 
 
 def song_years(connection):

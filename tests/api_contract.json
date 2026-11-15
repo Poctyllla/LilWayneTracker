@@ -1,6 +1,7 @@
 {
  "GET /api/artist/<id>": {
   "id": "int",
+  "image": "null",
   "name": "str",
   "roles": {
    "producer": "int"
@@ -93,6 +94,7 @@
  "GET /api/people": [
   {
    "id": "int",
+   "image": "null",
    "name": "str",
    "roles": [
     "str"

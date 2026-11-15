@@ -618,15 +618,67 @@ function roleName(role) {
   return ROLES[role] || role.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 }
 
-function renderPeople() {
-  const query = fold($("people-search").value.trim());
-  const list = state.people.filter((p) => !query || fold(p.name).includes(query));
-  $("people-list").innerHTML = `<div class="group">${list.map((p) => `
-    <a class="release-row" href="#/artist/${p.id}"><span>${esc(p.name)}</span>
-      <span class="muted">${plural(p.songs, "song")}${p.years && p.years.length ? ` · ${p.years[0] === p.years[1] ? esc(p.years[0])
-        : `${esc(p.years[0])}–${esc(p.years[1])}`}` : ""} · ${esc(p.roles.slice(0, 4).map(roleName).join(", "))}</span></a>`).join("")
-    || `<p class="muted">Nothing found.</p>`}</div>`;
+// Role filter groups (credit roles from Genius / Discogs are many and fine-grained).
+const ROLE_GROUPS = {
+  producer: (r) => /produc|programm|beat/.test(r),
+  writer: (r) => /writer|composer|lyricist|songwriter/.test(r),
+  featured: (r) => r === "featured_artist",
+  main: (r) => r === "main_artist",
+  engineer: (r) => /engineer|mix|master|record/.test(r),
+  musician: (r) => /vocal|keyboard|guitar|bass|drum|piano|synth|instrument|perform|horn|strings|scratch/.test(r),
+};
+
+function initials(name) {
+  return String(name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
 }
+// A person's photo (people_images.py, Genius) or their initials.
+function avatar(person, size) {
+  return person.image ? `<img class="avatar ${size}" src="covers/${esc(person.image)}" alt="" loading="lazy">`
+    : `<span class="avatar ${size} initials" aria-hidden="true">${esc(initials(person.name))}</span>`;
+}
+function personYears(p) {
+  return p.years && p.years.length ? (p.years[0] === p.years[1] ? esc(p.years[0]) : `${esc(p.years[0])}–${esc(p.years[1])}`) : "";
+}
+
+const PEOPLE_VIEWS = { grid: "▦ Grid", list: "☰ List" };
+function renderPeople() {
+  try { state.peopleView = PEOPLE_VIEWS[state.peopleView] ? state.peopleView : localStorage.getItem("lwt-people-view") || "grid"; }
+  catch (e) { state.peopleView = state.peopleView || "grid"; }
+  if (!PEOPLE_VIEWS[state.peopleView]) state.peopleView = "grid";
+  $("people-view-button").textContent = PEOPLE_VIEWS[state.peopleView];
+  for (const b of document.querySelectorAll("#people-views button")) b.classList.toggle("on", b.dataset.view === state.peopleView);
+  const query = fold($("people-search").value.trim());
+  const role = $("people-role").value, sort = $("people-sort").value;
+  $("people-filter-count").textContent = role || sort !== "songs" ? `(${Boolean(role) + (sort !== "songs")})` : "";
+  const list = state.people.filter((p) => (!query || fold(p.name).includes(query)) && (!role || p.roles.some(ROLE_GROUPS[role])))
+    .sort(sort === "name" ? (a, b) => a.name.localeCompare(b.name)
+      : sort === "first" ? (a, b) => (a.years[0] || "9999").localeCompare(b.years[0] || "9999") || b.songs - a.songs
+        : (a, b) => b.songs - a.songs);
+  $("people-total").textContent = `${list.length} ${list.length === 1 ? "person" : "people"} · the most credited people across the catalogue`;
+  const roles = (p) => esc(p.roles.slice(0, 3).map(roleName).join(", "));
+  $("people-list").innerHTML = !list.length ? `<p class="muted">Nothing found.</p>` : state.peopleView === "list"
+    ? `<div class="people-rows">${list.map((p) => `<a class="person-row" href="#/artist/${p.id}">${avatar(p, "medium")}
+        <span class="person-text"><span class="title">${esc(p.name)}</span><span class="muted">${roles(p)}</span></span>
+        <span class="person-figures"><strong>${p.songs}</strong> ${p.songs === 1 ? "song" : "songs"}<br><span class="muted">${personYears(p)}</span></span></a>`).join("")}</div>`
+    : `<div class="grid people-grid">${list.map((p) => `<a class="card person-card" href="#/artist/${p.id}">${avatar(p, "card-avatar")}
+        <div class="card-body"><div class="title">${esc(p.name)}</div><div class="artist">${roles(p)}</div>
+          <div class="artist">${plural(p.songs, "song")}${personYears(p) ? ` · ${personYears(p)}` : ""}</div></div></a>`).join("")}</div>`;
+}
+$("people-role").addEventListener("change", renderPeople);
+$("people-sort").addEventListener("change", renderPeople);
+$("reset-people-filters").addEventListener("click", () => {
+  $("people-role").value = ""; $("people-sort").value = "songs";
+  refreshChips($("people-filter-menu"));
+  renderPeople();
+});
+$("people-views").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-view]");
+  if (!button) return;
+  $("people-view-menu").open = false;
+  state.peopleView = button.dataset.view;
+  try { localStorage.setItem("lwt-people-view", state.peopleView); } catch (e) { /* storage unavailable */ }
+  renderPeople();
+});
 
 // Songs with this person per year of first appearance (the song list's dates).
 function collabByYear(person) {
@@ -645,9 +697,10 @@ async function openArtist(id) {
   const roles = Object.entries(person.roles).sort((a, b) => b[1] - a[1])
     .map(([role, n]) => `<span class="tag">${esc(roleName(role))} ${n}</span>`).join("");
   $("panel-body").innerHTML = `
-    <h2>${esc(person.name)}</h2>
-    <div class="muted">${plural(person.songs.length, "song")} in the catalogue</div>
-    <div>${roles}</div>
+    <div class="panel-head">${avatar(person, "big")}<div>
+      <h2>${esc(person.name)}</h2>
+      <div class="muted">${plural(person.songs.length, "song")} in the catalogue</div>
+      <div>${roles}</div></div></div>
     ${collabByYear(person)}
     <h3>Songs</h3>
     <table class="rows">${person.songs.map((s) => `<tr data-id="${s.id}">
@@ -681,7 +734,7 @@ function stackedBars(title, rows, series) {
     const label = r.href ? `<a href="${r.href}">${esc(r.label)}</a>` : esc(r.label);
     return `<div class="bar-row" data-tip="${esc(tip)}"><div class="bar-label">${label}</div>
       <div class="bar-track"><div class="bar-stack" style="width:${(total / max) * 100}%">${series.filter((s) => r.values[s.key])
-        .map((s) => `<span class="seg" style="flex:${r.values[s.key]};background:${s.color}"></span>`).join("")}</div>
+        .map((s) => `<span class="bar-seg" style="flex:${r.values[s.key]};background:${s.color}"></span>`).join("")}</div>
         <span class="bar-value">${total.toLocaleString()}</span></div></div>`;
   }).join("");
   const table = `<details class="table-view"><summary>Table</summary><table><thead><tr><th></th>${series.map((s) =>
@@ -695,7 +748,7 @@ function simpleBars(title, rows) {
   const max = Math.max(1, ...rows.map((r) => r.value));
   return `<section class="chart"><h3>${esc(title)}</h3>${rows.map((r) => `<div class="bar-row" data-tip="${esc(`${r.label}|${r.value} songs`)}">
     <div class="bar-label">${r.href ? `<a href="${r.href}">${esc(r.label)}</a>` : esc(r.label)}</div>
-    <div class="bar-track"><div class="bar-stack" style="width:${(r.value / max) * 100}%"><span class="seg" style="flex:1;background:var(--accent)"></span></div>
+    <div class="bar-track"><div class="bar-stack" style="width:${(r.value / max) * 100}%"><span class="bar-seg" style="flex:1;background:var(--accent)"></span></div>
     <span class="bar-value">${r.value.toLocaleString()}</span></div></div>`).join("")}</section>`;
 }
 
@@ -811,21 +864,211 @@ async function openEra(id) {
 
 /* ---------- statistics ---------- */
 
+/* ---------- statistics: interactive charts ----------
+ * Legends are buttons (show / hide a status in that chart; the axis follows the shown
+ * series); the figures on top keep only one status in every chart; time charts switch
+ * between columns and lines, era charts between counts and shares. Colours: the
+ * validated status palette; values and labels in text colours; table view per chart. */
+
+const stats = { charts: [], view: {}, solo: null };
+
+function niceMax(value) {
+  if (value <= 0) return 1;
+  const step = 10 ** Math.floor(Math.log10(value));
+  return [1, 2, 2.5, 5, 10].map((m) => m * step).find((m) => m >= value) || value;
+}
+function chartView(chart) {
+  return (stats.view[chart.id] ||= { hidden: new Set(), type: chart.types ? chart.types[0][0] : "ranked" });
+}
+function shownSeries(chart) {
+  const view = chartView(chart);
+  return chart.series.filter((s) => !view.hidden.has(s.key));
+}
+const rowTotal = (row, series) => series.reduce((sum, s) => sum + (row.values[s.key] || 0), 0);
+
+function chartLegend(chart) {
+  const view = chartView(chart);
+  const totals = Object.fromEntries(chart.series.map((s) => [s.key, chart.rows.reduce((sum, r) => sum + (r.values[s.key] || 0), 0)]));
+  return `<div class="legend" role="group" aria-label="Shown statuses">${chart.series.map((s) => `<button type="button"
+    class="legend-item toggle${view.hidden.has(s.key) ? " off" : ""}" data-chart="${chart.id}" data-series="${s.key}"
+    aria-pressed="${!view.hidden.has(s.key)}" title="Show / hide ${esc(s.label)}"><span class="swatch" style="background:${s.color}"></span>
+    ${esc(s.label)} <span class="muted">${totals[s.key].toLocaleString()}</span></button>`).join("")}</div>`;
+}
+
+function chartTypes(chart) {
+  const view = chartView(chart);
+  return chart.types ? `<div class="seg chart-types" role="group" aria-label="Chart type">${chart.types.map(([key, label]) =>
+    `<button type="button" class="${view.type === key ? "on" : ""}" data-chart="${chart.id}" data-type="${key}">${label}</button>`).join("")}</div>` : "";
+}
+
+function chartTable(chart, series) {
+  return `<details class="table-view"><summary>Table</summary><table><thead><tr><th></th>${series.map((s) =>
+    `<th>${esc(s.label)}</th>`).join("")}</tr></thead><tbody>${chart.rows.map((r) => `<tr><td>${esc(r.label)}</td>${series.map((s) =>
+    `<td>${(r.values[s.key] || 0).toLocaleString()}</td>`).join("")}</tr>`).join("")}</tbody></table></details>`;
+}
+
+// Horizontal stacked bars, as counts or as shares of each row.
+function hBars(chart, series, share) {
+  const max = share ? 1 : niceMax(Math.max(1, ...chart.rows.map((r) => rowTotal(r, series))));
+  return chart.rows.map((r) => {
+    const total = rowTotal(r, series);
+    const tip = [r.label, ...series.map((s) => `${s.label}: ${(r.values[s.key] || 0).toLocaleString()}${share && total
+      ? ` (${Math.round(100 * (r.values[s.key] || 0) / total)}%)` : ""}`)].join("|");
+    const width = share ? (total ? 100 : 0) : (total / max) * 100;
+    return `<div class="bar-row" data-tip="${esc(tip)}"><div class="bar-label">${r.href ? `<a href="${r.href}">${esc(r.label)}</a>` : esc(r.label)}</div>
+      <div class="bar-track"><div class="bar-stack" style="width:${width}%">${series.filter((s) => r.values[s.key]).map((s) =>
+        `<span class="bar-seg" style="flex:${r.values[s.key]};background:${s.color}"></span>`).join("")}</div>
+      <span class="bar-value">${total.toLocaleString()}</span></div></div>`;
+  }).join("");
+}
+
+// Vertical stacked columns over time (bottom: the first series).
+function columns(chart, series) {
+  const max = niceMax(Math.max(1, ...chart.rows.map((r) => rowTotal(r, series))));
+  const step = Math.ceil(chart.rows.length / 12);
+  const ticks = [1, 0.75, 0.5, 0.25, 0].map((f) => Math.round(max * f));
+  // axis labels and grid lines share one coordinate: a fraction of the plot height above the labels row
+  const at = (i) => `calc((100% - 22px) * ${i * 0.25})`;
+  return `<div class="col-chart"><div class="col-axis">${ticks.map((t, i) => `<span style="top:${at(i)}">${t.toLocaleString()}</span>`).join("")}</div>
+    <div class="col-plot">${ticks.map((t, i) => `<span class="col-grid" style="top:${at(i)}"></span>`).join("")}
+    ${chart.rows.map((r, i) => {
+      const total = rowTotal(r, series);
+      const tip = [r.label, ...series.map((s) => `${s.label}: ${(r.values[s.key] || 0).toLocaleString()}`)].join("|");
+      return `<div class="col" data-tip="${esc(tip)}"><div class="col-stack" style="height:${(total / max) * 100}%">${series
+        .filter((s) => r.values[s.key]).map((s) => `<span class="bar-seg" style="flex:${r.values[s.key]};background:${s.color}"></span>`).join("")}</div>
+        <span class="col-label">${i % step === 0 ? esc(r.label) : ""}</span></div>`;
+    }).join("")}</div></div>`;
+}
+
+// Lines over time (one per shown series), crosshair + tooltip on hover, labels at the line ends.
+const LINE = { w: 760, h: 260, l: 44, r: 92, t: 14, b: 30 };
+function lines(chart, series) {
+  const rows = chart.rows, { w, h, l, r, t, b } = LINE;
+  const max = niceMax(Math.max(1, ...rows.flatMap((row) => series.map((s) => row.values[s.key] || 0))));
+  const x = (i) => l + (rows.length < 2 ? 0 : (i * (w - l - r)) / (rows.length - 1));
+  const y = (v) => t + (h - t - b) * (1 - v / max);
+  const grid = [0, 0.25, 0.5, 0.75, 1].map((f) => `<line class="grid-line" x1="${l}" x2="${w - r}" y1="${y(max * f)}" y2="${y(max * f)}"/>
+    <text class="axis-text" x="${l - 8}" y="${y(max * f) + 4}" text-anchor="end">${Math.round(max * f).toLocaleString()}</text>`).join("");
+  const step = Math.ceil(rows.length / 12);
+  const xLabels = rows.map((row, i) => i % step === 0 ? `<text class="axis-text" x="${x(i)}" y="${h - 8}" text-anchor="middle">${esc(row.label)}</text>` : "").join("");
+  const paths = series.map((s) => `<polyline class="line" style="stroke:${s.color}" points="${rows.map((row, i) =>
+    `${x(i).toFixed(1)},${y(row.values[s.key] || 0).toFixed(1)}`).join(" ")}"/>`).join("");
+  // end labels, pushed apart when they would overlap
+  const ends = series.map((s) => ({ s, v: rows.length ? rows[rows.length - 1].values[s.key] || 0 : 0 }))
+    .map((e) => ({ ...e, y: y(e.v) })).sort((a, b2) => a.y - b2.y);
+  for (let i = 1; i < ends.length; i++) if (ends[i].y - ends[i - 1].y < 15) ends[i].y = ends[i - 1].y + 15;
+  const endMarks = ends.map((e) => `<circle class="end-dot" cx="${x(rows.length - 1)}" cy="${y(e.v)}" r="4" style="fill:${e.s.color}"/>
+    <text class="end-label" x="${x(rows.length - 1) + 10}" y="${e.y + 4}">${esc(e.s.label)} ${e.v.toLocaleString()}</text>`).join("");
+  return `<div class="line-chart"><svg class="line-svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(chart.title)}" data-chart="${chart.id}">
+    ${grid}${xLabels}${paths}${endMarks}<line class="crosshair" x1="0" x2="0" y1="${t}" y2="${h - b}" visibility="hidden"/>
+    <rect class="hit" x="${l}" y="${t}" width="${w - l - r}" height="${h - t - b}" data-tip=""/></svg></div>`;
+}
+
+// One series, ranked; photos for people.
+function ranked(chart) {
+  const max = Math.max(1, ...chart.rows.map((r) => r.value));
+  return chart.rows.map((r) => `<div class="bar-row ranked-row" data-tip="${esc(`${r.label}|${r.value.toLocaleString()} ${chart.unit}`)}">
+    <div class="bar-label">${chart.people ? avatar({ name: r.label, image: r.image }, "tiny") : ""}${r.href
+      ? `<a href="${r.href}">${esc(r.label)}</a>` : esc(r.label)}</div>
+    <div class="bar-track"><div class="bar-stack" style="width:${(r.value / max) * 100}%"><span class="bar-seg" style="flex:1;background:var(--accent)"></span></div>
+    <span class="bar-value">${r.value.toLocaleString()}</span></div></div>`).join("");
+}
+
+function renderChart(chart) {
+  const view = chartView(chart);
+  if (!chart.series) {  // ranked, one series: the title names it, no legend
+    return `<section class="chart" data-chart-id="${chart.id}"><div class="chart-head"><h3>${esc(chart.title)}</h3></div>${ranked(chart)}
+      <details class="table-view"><summary>Table</summary><table><tbody>${chart.rows.map((r) =>
+        `<tr><td>${esc(r.label)}</td><td>${r.value.toLocaleString()}</td></tr>`).join("")}</tbody></table></details></section>`;
+  }
+  const series = shownSeries(chart);
+  const body = view.type === "share" ? hBars(chart, series, true) : view.type === "columns" ? columns(chart, series)
+    : view.type === "lines" ? lines(chart, series) : hBars(chart, series, false);
+  return `<section class="chart${chart.wide ? " wide" : ""}" data-chart-id="${chart.id}">
+    <div class="chart-head"><h3>${esc(chart.title)}</h3>${chartTypes(chart)}</div>
+    ${chartLegend(chart)}${body}${chartTable(chart, series)}</section>`;
+}
+
+function rerenderChart(id) {
+  const chart = stats.charts.find((c) => c.id === id);
+  const old = document.querySelector(`[data-chart-id="${id}"]`);
+  if (chart && old) old.outerHTML = renderChart(chart);
+}
+
+function statTiles() {
+  const own = state.songs.filter((s) => !s.guest);
+  const tile = (key, label, n, color) => `<button type="button" class="stat-tile${stats.solo === key ? " on" : ""}${stats.solo && stats.solo !== key ? " dim" : ""}"
+    ${key ? `data-solo="${key}" aria-pressed="${stats.solo === key}"` : "disabled"}>
+    <span class="stat-label">${color ? `<span class="swatch" style="background:${color}"></span>` : ""}${esc(label)}</span>
+    <span class="stat-value">${n.toLocaleString()}</span>
+    <span class="stat-share">${key ? `${Math.round((100 * n) / Math.max(1, own.length))}% of his songs` : "Lil Wayne songs"}</span></button>`;
+  return `<div class="stat-tiles">${tile("", "All songs", own.length, "")}${STATUS_SERIES.map((s) =>
+    tile(s.key, s.label, own.filter((x) => x.status === s.key).length, s.color)).join("")}</div>
+    <p class="muted stat-hint">Click a figure to show only that status in every chart, a legend entry to show or hide it in one chart.</p>`;
+}
+
 async function renderStats() {
   const data = await getJSON("/api/v1/stats");
-  const eraRows = data.by_era.map((e) => ({ label: e.name, href: `#/era/${e.id}`, values: e }));
-  const yearRows = data.by_year.map((y) => ({ label: y.year, values: y }));
-  const top = (list) => list.map((p) => ({ label: p.name, href: `#/artist/${p.id}`, value: p.songs }));
-  const versions = Object.entries(data.versions).map(([type, n]) => ({ label: VERSION_TYPES[type] || type, value: n }));
-  $("stats").innerHTML = `<div class="stats-grid">
-    ${stackedBars("Lil Wayne songs by era", eraRows, STATUS_SERIES)}
-    ${stackedBars("Songs by year of first appearance", yearRows, STATUS_SERIES.slice(0, 2))}
-    ${simpleBars("Most credited producers", top(data.producers))}
-    ${simpleBars("Most frequent featured artists", top(data.featured))}
-    ${simpleBars("Most credited writers", top(data.writers))}
-    ${simpleBars("Versions besides the main one", versions)}</div>`;
+  const images = new Map(state.people.map((p) => [p.id, p.image]));
+  const top = (list) => list.map((p) => ({ label: p.name, href: `#/artist/${p.id}`, value: p.songs, image: images.get(p.id) }));
+  stats.charts = [
+    { id: "year", title: "Songs by year of first appearance", wide: true, series: STATUS_SERIES.slice(0, 2),
+      rows: data.by_year.map((y) => ({ label: y.year, values: y })), types: [["columns", "Columns"], ["lines", "Lines"]] },
+    { id: "era", title: "Lil Wayne songs by era", wide: true, series: STATUS_SERIES,
+      rows: data.by_era.map((e) => ({ label: eraName(e), href: `#/era/${e.id}`, values: e })), types: [["bars", "Counts"], ["share", "Share"]] },
+    { id: "producers", title: "Most credited producers", rows: top(data.producers), people: true, unit: "songs" },
+    { id: "featured", title: "Most frequent featured artists", rows: top(data.featured), people: true, unit: "songs" },
+    { id: "writers", title: "Most credited writers", rows: top(data.writers), people: true, unit: "songs" },
+    { id: "versions", title: "Versions besides the main one",
+      rows: Object.entries(data.versions).map(([type, n]) => ({ label: VERSION_TYPES[type] || type, value: n })), unit: "versions" },
+  ];
+  $("stats").innerHTML = `${statTiles()}<div class="stats-grid">${stats.charts.map(renderChart).join("")}</div>`;
   state.statsLoaded = true;
 }
+
+$("stats").addEventListener("click", (event) => {
+  const legend = event.target.closest("[data-series]");
+  const type = event.target.closest("[data-type]");
+  const solo = event.target.closest("[data-solo]");
+  if (legend) {
+    const chart = stats.charts.find((c) => c.id === legend.dataset.chart);
+    const view = chartView(chart);
+    const key = legend.dataset.series;
+    if (view.hidden.has(key)) view.hidden.delete(key);
+    else if (chart.series.length - view.hidden.size > 1) view.hidden.add(key);  // one status always stays
+    stats.solo = null;
+    rerenderChart(chart.id);
+  } else if (type) {
+    chartView(stats.charts.find((c) => c.id === type.dataset.chart)).type = type.dataset.type;
+    rerenderChart(type.dataset.chart);
+  } else if (solo) {
+    stats.solo = stats.solo === solo.dataset.solo ? null : solo.dataset.solo;
+    for (const chart of stats.charts.filter((c) => c.series)) {
+      const view = chartView(chart);
+      view.hidden = new Set(stats.solo && chart.series.some((s) => s.key === stats.solo)
+        ? chart.series.filter((s) => s.key !== stats.solo).map((s) => s.key) : []);
+    }
+    $("stats").innerHTML = `${statTiles()}<div class="stats-grid">${stats.charts.map(renderChart).join("")}</div>`;
+  }
+});
+// Line charts: the crosshair snaps to the nearest year; the tooltip lists every shown series.
+$("stats").addEventListener("mousemove", (event) => {
+  const svg = event.target.closest(".line-svg");
+  if (!svg) return;
+  const chart = stats.charts.find((c) => c.id === svg.dataset.chart);
+  const box = svg.getBoundingClientRect();
+  const px = ((event.clientX - box.left) / box.width) * LINE.w;
+  const n = chart.rows.length;
+  const i = Math.max(0, Math.min(n - 1, Math.round(((px - LINE.l) / (LINE.w - LINE.l - LINE.r)) * (n - 1))));
+  const row = chart.rows[i];
+  const xPos = LINE.l + (n < 2 ? 0 : (i * (LINE.w - LINE.l - LINE.r)) / (n - 1));
+  const cross = svg.querySelector(".crosshair");
+  cross.setAttribute("x1", xPos); cross.setAttribute("x2", xPos); cross.setAttribute("visibility", "visible");
+  svg.querySelector(".hit").dataset.tip = [row.label, ...shownSeries(chart).map((s) => `${s.label}: ${(row.values[s.key] || 0).toLocaleString()}`)].join("|");
+});
+$("stats").addEventListener("mouseleave", () => {
+  for (const cross of document.querySelectorAll("#stats .crosshair")) cross.setAttribute("visibility", "hidden");
+}, true);
 
 /* ---------- CSV export of the songs shown ---------- */
 

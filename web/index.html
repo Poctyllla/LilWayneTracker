@@ -187,8 +187,35 @@
   <section id="people-view" hidden>
     <div class="filters">
       <input id="people-search" type="search" placeholder="Search producers, writers, featured artists…" autocomplete="off">
+      <details class="menu" id="people-filter-menu">
+        <summary class="menu-button">Filters <span id="people-filter-count"></span></summary>
+        <div class="menu-panel">
+          <div class="field"><span>Role</span><select id="people-role" data-chips>
+            <option value="">All roles</option>
+            <option value="producer">Producers</option>
+            <option value="writer">Writers &amp; composers</option>
+            <option value="featured">Featured artists</option>
+            <option value="main">Main artists</option>
+            <option value="engineer">Engineers</option>
+            <option value="musician">Musicians</option>
+          </select></div>
+          <div class="field"><span>Sort</span><select id="people-sort" data-chips>
+            <option value="songs">Most songs</option>
+            <option value="name">Name</option>
+            <option value="first">First together</option>
+          </select></div>
+          <button type="button" class="act ghost" id="reset-people-filters">Reset</button>
+        </div>
+      </details>
+      <details class="menu" id="people-view-menu">
+        <summary class="menu-button" id="people-view-button">▦ Grid</summary>
+        <div class="menu-panel narrow" id="people-views">
+          <button data-view="grid">▦ Grid</button>
+          <button data-view="list">☰ List</button>
+        </div>
+      </details>
     </div>
-    <p class="muted">The most credited people across the catalogue. Click a name for all of their songs.</p>
+    <p class="muted" id="people-total"></p>
     <div id="people-list"></div>
   </section>
 
