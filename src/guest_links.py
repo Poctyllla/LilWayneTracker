@@ -1,4 +1,4 @@
-"""Apple Music track links for guest appearances (songs by other artists with Lil Wayne).
+"""Apple Music and Spotify track links for guest appearances (songs by other artists with Lil Wayne).
 
 The release-based search (streaming_search.py) covers Lil Wayne's own releases;
 most guest songs are on no catalogued release, so they had no player.  For every
@@ -14,6 +14,10 @@ the artist is the song's main artist, Lil Wayne is in its artist or title, and i
 neither a censored ("cleaned") edition nor a karaoke / instrumental / sped up ...
 version.  The song gets a main version (if it has none) with the link in
 version_links (service apple_music, source 'iTunes API').
+Spotify: the Web API track search ("track:<title> artist:<artist>") with the same rules
+(title, first artist, Lil Wayne among the artists, explicit first; an extra version note
+such as "West Coast Version" loses against the plain title); service spotify, source
+'Spotify API'.
 Answers are cached in exports/guest_links.json.
 
 usage:
@@ -28,6 +32,7 @@ import sqlite3
 import urllib.parse
 from pathlib import Path
 
+import spotify_source
 from import_release import DATABASE_PATH
 from streaming_search import itunes_get, letters
 
@@ -89,6 +94,26 @@ def best_track(tracks, title, artist):
     return good[0] if good else None
 
 
+FEATURE_NOTE = re.compile(r"[(\[]\s*(?:feat|ft|with)\b", re.IGNORECASE)
+
+
+def spotify_best(items, title, artist):
+    """The accepted Spotify track (dict) for a guest song, or None."""
+    wanted_title, wanted_artist = plain(title), letters(artist)
+    good = []
+    for item in items:
+        names = [a.get("name") or "" for a in item.get("artists") or []]
+        name = item.get("name") or ""
+        if plain(name) != wanted_title or not names or letters(names[0]) != wanted_artist:
+            continue
+        if not any(WAYNE.fullmatch(n) for n in names) or (UNWANTED.search(name) and not UNWANTED.search(title)):
+            continue
+        extra = len([m for m in re.findall(r"[(\[][^)\]]*[)\]]", name) if not FEATURE_NOTE.match(m)])
+        good.append((extra, not item.get("explicit"), item))
+    good.sort(key=lambda g: (g[0], g[1]))
+    return good[0][2] if good else None
+
+
 class Apple:
     """iTunes lookups, cached (exports/guest_links.json)."""
 
@@ -133,6 +158,18 @@ class Apple:
         return None
 
 
+def spotify_find(cache, title, artist):
+    key = f"spotify|{artist}|{title}"
+    if key not in cache:
+        query = f'track:"{NOTES.sub("", title)}" artist:"{artist}"'
+        data = spotify_source.api_get("/search?" + urllib.parse.urlencode(
+            {"q": query, "type": "track", "limit": 10, "market": "US"})) or {}
+        cache[key] = [{"id": i.get("id"), "name": i.get("name"), "explicit": i.get("explicit"),
+                       "artists": [{"name": a.get("name")} for a in i.get("artists") or []]}
+                      for i in (data.get("tracks") or {}).get("items") or []]
+    return spotify_best(cache[key], title, artist)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Apple Music track links for guest appearances.")
     parser.add_argument("--apply", action="store_true")
@@ -142,10 +179,12 @@ def main(argv=None):
     apple = Apple()
     try:
         songs = performer_songs(connection)
-        linked = {row[0] for row in connection.execute("""
-            SELECT v.recording_id FROM versions v JOIN version_links l ON l.version_id = v.id
-            WHERE l.service = 'apple_music'""")}
-        todo = [s for s in songs if s[0] not in linked]
+        def linked(service):
+            return {row[0] for row in connection.execute("""
+                SELECT v.recording_id FROM versions v JOIN version_links l ON l.version_id = v.id
+                WHERE l.service = ?""", (service,))}
+        apple_done, spotify_done = linked("apple_music"), linked("spotify")
+        todo = [s for s in songs if s[0] not in apple_done]
         print(f"Released guest songs with Lil Wayne as a performer: {len(songs)}; without an Apple link: {len(todo)}")
         found = []
         for index, (recording_id, title, artist, availability, album) in enumerate(todo, start=1):
@@ -158,7 +197,23 @@ def main(argv=None):
         for _id, title, artist, _a, track in found[:15]:
             print(f"  {artist} - {title}  ->  {track['artistName']} - {track['trackName']} "
                   f"({track['collectionName']}, {track['trackExplicitness']})")
-        print(f"Matches: {len(found)} of {len(todo)}")
+        print(f"Apple Music matches: {len(found)} of {len(todo)}")
+        spotify_found = []
+        try:
+            for index, (recording_id, title, artist, availability, _album) in enumerate(
+                    [s for s in songs if s[0] not in spotify_done], start=1):
+                track = spotify_find(apple.cache, title, artist)
+                if track:
+                    spotify_found.append((recording_id, availability, track))
+                if index % 100 == 0:
+                    apple.save()
+                    print(f"  ... Spotify {index}: {len(spotify_found)} found")
+        except spotify_source.RateLimited as error:
+            print(f"Spotify asks to wait {error}; the Spotify part stops here (run again later).")
+        apple.save()
+        for _id, _a, track in spotify_found[:10]:
+            print(f"  Spotify: {', '.join(a['name'] for a in track['artists'])} - {track['name']} (explicit {track['explicit']})")
+        print(f"Spotify matches: {len(spotify_found)}")
         if not args.apply:
             print("Dry run; --apply stores the links (back up first).")
             return
@@ -174,6 +229,15 @@ def main(argv=None):
                     version_id = version[0]
                 connection.execute("INSERT OR IGNORE INTO version_links (version_id, service, url, source) "
                                    "VALUES (?, 'apple_music', ?, 'iTunes API')", (version_id, track["trackViewUrl"]))
+            for recording_id, availability, track in spotify_found:
+                version = connection.execute("SELECT id FROM versions WHERE recording_id = ? "
+                                             "ORDER BY version_type != 'album', id", (recording_id,)).fetchone()
+                version_id = version[0] if version else connection.execute(
+                    "INSERT INTO versions (recording_id, version_name, version_type, availability_status) "
+                    "VALUES (?, 'Album Version', 'album', ?)", (recording_id, availability)).lastrowid
+                connection.execute("INSERT OR IGNORE INTO version_links (version_id, service, url, source) "
+                                   "VALUES (?, 'spotify', ?, 'Spotify API')",
+                                   (version_id, f"https://open.spotify.com/track/{track['id']}"))
         print(f"Stored. Foreign keys: {connection.execute('PRAGMA foreign_key_check').fetchall()[:3]}")
     finally:
         connection.close()

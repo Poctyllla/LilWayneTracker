@@ -858,6 +858,13 @@ body.has-player .modal-backdrop { bottom: 76px; }
 /* Settings -> Lyrics */
 .lyr-color-row { display: flex; align-items: center; gap: 8px; }
 .lyr-color-row input[type="color"] { width: 42px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: none; }
-.lyr-preview { margin-top: 12px; padding: 14px 10px; border-radius: 12px; background: linear-gradient(135deg, #2b2440, #121214);
-               max-height: none; overflow: visible; }
+.lyr-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.lyr-preview { position: sticky; top: 0; margin: 0; padding: 18px 12px; border-radius: 12px;
+               background: linear-gradient(135deg, #2b2440, #121214); max-height: none; overflow: hidden; }
+@media (max-width: 760px) {
+  .lyr-layout { grid-template-columns: 1fr; }
+  .lyr-preview { order: -1; }  /* small screens: the preview above the options */
+}
 .lyr-preview .lyric { cursor: default; }
+
+.lyr-fields .field { margin-bottom: 12px; }
