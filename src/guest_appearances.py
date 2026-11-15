@@ -96,9 +96,22 @@ def known_musicbrainz_ids(connection):
     """)}
 
 
+EXCLUDED_PATH = Path(__file__).resolve().parent.parent / "data" / "excluded_guest_songs.json"
+
+
+def excluded_songs(path=EXCLUDED_PATH):
+    """{(artist key, song key)} of songs that are not Lil Wayne guest appearances (owner,
+    Nov 15, 2026: he is only a writer, or it is a cover / remix / re-upload)."""
+    if not Path(path).exists():
+        return set()
+    return {(artist_key(s["artist"]), guest_song_key(s["title"]))
+            for s in json.loads(Path(path).read_text(encoding="utf-8"))["songs"]}
+
+
 def plan(survey, connection):
     """(actions, skipped): one action per guest song to add."""
     guests, known = existing_guests(connection), known_musicbrainz_ids(connection)
+    excluded = excluded_songs()
     actions, skipped = [], {}
 
     def skip(reason):
@@ -110,6 +123,9 @@ def plan(survey, connection):
             continue
         if song.get("group_song"):
             skip("group song")
+            continue
+        if (artist_key(song["main_artist"]), guest_song_key(song["title"])) in excluded:
+            skip("excluded: not a Lil Wayne performance")
             continue
         if (artist_key(song["main_artist"]), guest_song_key(song["title"])) in guests:
             skip("guest song already added")
