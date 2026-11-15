@@ -105,14 +105,15 @@ def songs(connection):
     rows = []
     for row in connection.execute("""
         SELECT r.id, r.title, a.name AS artist, r.appearance, r.era_id, r.recording_date,
-               av.availability, r.genius_song_id
+               av.availability, r.genius_song_id, r.first_known_date, r.leak_date
         FROM recordings r JOIN artists a ON a.id = r.artist_id
         JOIN recording_availability av ON av.recording_id = r.id ORDER BY r.title COLLATE NOCASE"""):
         types = versions.get(row["id"], [])
         rows.append({
             "id": row["id"], "title": row["title"], "artist": row["artist"],
             "guest": row["appearance"] == "guest", "era": row["era_id"], "status": row["availability"],
-            "date": first_dates.get(row["id"]) or row["recording_date"],
+            # first release, else the recording / first-known / leak date (songs known from sources only)
+            "date": first_dates.get(row["id"]) or row["recording_date"] or row["first_known_date"] or row["leak_date"],
             "versions": len(types), "types": sorted({t for t in types if t and t != "album"}),
             "variants": variants.get(row["id"], []),
             "wanted": bool(heard.get(row["id"], {}).get("snippet") and not heard[row["id"]]["full"]),
@@ -364,7 +365,8 @@ def song_years(connection):
         WHERE length(x.release_date) >= 4 GROUP BY v.recording_id"""):
         years[recording_id] = year
     for recording_id, date in connection.execute(
-            "SELECT id, recording_date FROM recordings WHERE length(recording_date) >= 4"):
+            "SELECT id, COALESCE(recording_date, first_known_date, leak_date) AS d FROM recordings "
+            "WHERE length(COALESCE(recording_date, first_known_date, leak_date)) >= 4"):
         years.setdefault(recording_id, date[:4])
     return years
 
