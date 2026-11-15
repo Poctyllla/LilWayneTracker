@@ -498,8 +498,8 @@ function compareVersions(song) {
       <td>${v.tracks.length || ""}</td><td>${v.files || ""}</td></tr>`;
   }).join("");
   return `<details class="table-view compare"><summary>Compare ${song.versions.length} versions</summary>
-    <table><thead><tr><th>Version</th><th>Type</th><th>Status</th><th>First</th><th>Length</th><th>Releases</th>
-    <th>Files</th></tr></thead><tbody>${rows}</tbody></table></details>`;
+    <div class="compare-scroll"><table><thead><tr><th>Version</th><th>Type</th><th>Status</th><th>First</th><th>Length</th><th>Releases</th>
+    <th>Files</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
 }
 
 /* ---------- releases ---------- */
