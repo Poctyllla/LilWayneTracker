@@ -210,7 +210,35 @@ const VIEWS = {
   }).join("")}</table>`,
 };
 
+/* ---------- filters are remembered across reloads (this browser only) ---------- */
+const FILTERS_KEY = "lwt-filters";
+const FILTER_FIELDS = ["search", "era", "kind", "vtype", "sort", "release-search", "discography", "release-type",
+                       "people-search", "people-role", "people-sort"];
+function saveFilters() {
+  if (!state.filtersRestored) return;  // nothing is saved before the remembered ones are back
+  const saved = Object.fromEntries(FILTER_FIELDS.map((id) => [id, $(id).value]));
+  saved.statuses = [...state.statuses];
+  try { localStorage.setItem(FILTERS_KEY, JSON.stringify(saved)); } catch (e) { /* storage unavailable */ }
+}
+function restoreFilters() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(FILTERS_KEY)) || {}; } catch (e) { saved = {}; }
+  for (const id of FILTER_FIELDS) {
+    const field = $(id);
+    if (typeof saved[id] !== "string") continue;
+    // a select only takes a value it still offers (an era or type may be gone)
+    if (field.tagName !== "SELECT" || [...field.options].some((o) => o.value === saved[id])) field.value = saved[id];
+  }
+  if (Array.isArray(saved.statuses)) {
+    state.statuses = new Set(saved.statuses.filter((s) => STATUS[s]));
+    for (const chip of document.querySelectorAll("#status-filter .chip")) chip.classList.toggle("on", state.statuses.has(chip.dataset.status));
+  }
+  state.filtersRestored = true;
+  updateFilterCount();
+}
+
 function renderSongs() {
+  saveFilters();
   const base = filteredSongs();
   for (const chip of document.querySelectorAll(".chip")) {
     chip.querySelector("span").textContent = base.filter((s) => s.status === chip.dataset.status).length;
@@ -437,6 +465,7 @@ const RELEASE_RENDER = {
 };
 
 function renderReleases() {
+  saveFilters();
   try { state.releaseView = RELEASE_VIEWS.includes(state.releaseView) ? state.releaseView : localStorage.getItem("lwt-release-view") || "list"; }
   catch (e) { state.releaseView = state.releaseView || "list"; }
   if (!RELEASE_VIEWS.includes(state.releaseView)) state.releaseView = "list";
@@ -548,6 +577,7 @@ async function init() {
   const releaseTypes = [...new Set(releases.map((r) => r.release_type))].sort((a, b) =>
     Object.keys(RELEASE_TYPES).indexOf(a) - Object.keys(RELEASE_TYPES).indexOf(b));
   $("release-type").insertAdjacentHTML("beforeend", releaseTypes.map((t) => `<option value="${esc(t)}">${esc(RELEASE_TYPES[t] || t)}</option>`).join(""));
+  restoreFilters();  // the filters of the last visit win over "Songs shown at start"
   refreshChips();
   renderSongs();
   renderReleases();
@@ -642,6 +672,7 @@ function personYears(p) {
 
 const PEOPLE_VIEWS = { grid: "▦ Grid", list: "☰ List" };
 function renderPeople() {
+  saveFilters();
   try { state.peopleView = PEOPLE_VIEWS[state.peopleView] ? state.peopleView : localStorage.getItem("lwt-people-view") || "grid"; }
   catch (e) { state.peopleView = state.peopleView || "grid"; }
   if (!PEOPLE_VIEWS[state.peopleView]) state.peopleView = "grid";
