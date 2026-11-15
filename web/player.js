@@ -1,5 +1,7 @@
 /* Lil Wayne Tracker -- player.
  *
+ * The sources are the adapters of providers.js (one interface); this file holds the
+ * queue and the views and never asks which service is playing, only what it can do.
  * One queue, three sources per track:
  *   spotify  Spotify's embedded player (iFrame API): full tracks for listeners
  *            signed in to Spotify in this browser, 30 s previews otherwise;
@@ -15,8 +17,9 @@
  * Uses app.js / api.js globals ($, esc, state, duration, eraOf, loadSettings, API).
  */
 
-const PLAYER_ORDER = ["spotify", "apple", "file"];
-const SOURCE_NAMES = { spotify: "Spotify", apple: "Apple Music", file: "Local file" };
+// The sources are the adapters of providers.js; their order is the fallback order.
+const PLAYER_ORDER = Object.keys(PROVIDERS);
+const SOURCE_NAMES = Object.fromEntries(Object.entries(PROVIDERS).map(([key, provider]) => [key, provider.name]));
 const REPEAT_MODES = ["off", "all", "one", "once"];
 const REPEAT_LABELS = { off: "Repeat: off", all: "Repeat the queue", one: "Repeat this song (forever)",
                         once: "Repeat this song once" };
@@ -37,11 +40,12 @@ const ICON_PATHS = {
 const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON_PATHS[name]}"/></svg>`;
 const PLAYER_KEY = "lwt-player";  // volume, repeat, shuffle (this browser only)
 const player = { queue: [], original: null, index: -1, source: null, paused: true, position: 0, duration: 0,
-                 spotify: null, spotifyApi: null, pendingPlay: false, ended: false, repeatedOnce: false,
+                 ended: false, repeatedOnce: false,
                  repeat: "off", shuffle: false, volume: 80, muted: false, side: "queue",
                  lyrics: null, lyricsFor: null, lyricLine: -1, nextId: 1 };
-const audio = $("pl-audio");
 const lyricsCache = new Map();
+const current = () => PROVIDERS[player.source] || null;  // the adapter playing now
+const can = (capability) => Boolean(current() && current().capabilities[capability]);
 
 try { Object.assign(player, JSON.parse(localStorage.getItem(PLAYER_KEY)) || {}); } catch (e) { /* defaults */ }
 if (!REPEAT_MODES.includes(player.repeat)) player.repeat = "off";
@@ -57,9 +61,9 @@ function preferredSource() {
 
 // The sources of one queue item that this copy of the site can play.
 function sourcesOf(item) {
-  const have = { spotify: item.spotify, apple: item.apple, file: API.features.stream && item.file_id };
   const preferred = preferredSource();
-  return [preferred, ...PLAYER_ORDER.filter((s) => s !== preferred)].filter((s) => have[s]);
+  return [preferred, ...PLAYER_ORDER.filter((s) => s !== preferred)]
+    .filter((s) => item[PROVIDERS[s].key] && PROVIDERS[s].allowed());
 }
 const playable = (play) => Boolean(play) && sourcesOf(play).length > 0;
 
@@ -165,11 +169,25 @@ function cycleRepeat() {
 
 /* ---------- playback ---------- */
 
+// What the adapters report (providers.js): the state of the source playing now.
+Object.assign(providerHost, {
+  update(state) {
+    if (state.paused !== undefined) player.paused = state.paused;
+    if (state.position !== undefined) player.position = state.position;
+    if (state.duration !== undefined) player.duration = state.duration;
+    renderProgress();
+  },
+  ended() {
+    if (player.ended) return;
+    player.ended = true;
+    trackEnded();
+  },
+  hint: (text) => showHint(text),
+  reveal: () => openFull(true),
+});
+
 function stopAll() {
-  audio.pause();
-  if (player.spotify && player.source === "spotify") player.spotify.pause();
-  $("pf-apple").innerHTML = "";
-  player.pendingPlay = false;
+  for (const provider of Object.values(PROVIDERS)) provider.stop();
 }
 
 function playCurrent(replay = false) {
@@ -186,89 +204,11 @@ function playCurrent(replay = false) {
   showHint("");
   $("player").hidden = false;
   document.body.classList.add("has-player");
-  if (player.source === "file") {
-    audio.src = `/api/v1/stream/${item.file_id}`;
-    applyVolume();
-    audio.play().catch((error) => {  // AbortError: the source changed meanwhile (not a failure)
-      if (error.name === "NotAllowedError") showHint("The browser blocked playback: press ▶.");
-    });
-  } else if (player.source === "spotify") {
-    playSpotify(`spotify:track:${item.spotify}`);
-  } else if (player.source === "apple") {
-    const url = item.apple.replace("://music.apple.com/", "://embed.music.apple.com/");
-    $("pf-apple").innerHTML = `<iframe title="Apple Music player" src="${esc(url)}" height="175" loading="lazy"
-      allow="autoplay *; encrypted-media *; clipboard-write" sandbox="allow-forms allow-popups allow-same-origin allow-scripts allow-storage-access-by-user-activation allow-top-navigation-by-user-activation"></iframe>`;
-    showHint("Press play in the Apple Music player below.");
-    openFull(true);
-  }
+  applyVolume();
+  current().play(item);
   mediaSession(item);
   renderPlayer();
   if (isFullOpen() && player.side === "lyrics") loadLyrics();
-}
-
-function loadSpotifyApi() {
-  if (player.spotifyApi) return player.spotifyApi;
-  player.spotifyApi = new Promise((resolve, reject) => {
-    window.onSpotifyIframeApiReady = resolve;
-    const script = document.createElement("script");
-    script.src = "https://open.spotify.com/embed/iframe-api/v1";
-    script.async = true;
-    script.onerror = () => { player.spotifyApi = null; reject(new Error("Spotify player could not be loaded")); };
-    document.head.appendChild(script);
-  });
-  return player.spotifyApi;
-}
-
-async function playSpotify(uri) {
-  player.pendingPlay = true;
-  try {
-    const api = await loadSpotifyApi();
-    if (!player.spotify) {
-      await new Promise((resolve) => api.createController($("pf-spotify"), { uri, width: "100%", height: 152 }, (controller) => {
-        player.spotify = controller;
-        controller.addListener("ready", () => {
-          if (player.pendingPlay && player.source === "spotify") { player.pendingPlay = false; controller.play(); }
-        });
-        controller.addListener("playback_update", (event) => onSpotifyUpdate(event.data));
-        resolve();
-      }));
-    } else {
-      player.spotify.loadUri(uri);
-    }
-    // When the browser does not let the embed start by itself, ask for one click inside it.
-    setTimeout(() => {
-      if (player.source === "spotify" && player.paused && !player.position) {
-        if (player.pendingPlay) { player.pendingPlay = false; player.spotify.play(); }
-        setTimeout(() => {
-          if (player.source === "spotify" && player.paused && !player.position) {
-            showHint("Press play in the Spotify player below.");
-            openFull(true);
-          }
-        }, 2000);
-      }
-    }, 1500);
-  } catch (error) {
-    showHint(error.message);
-    openFull(true);
-  }
-}
-
-function onSpotifyUpdate(data) {
-  if (player.source !== "spotify" || !data) return;
-  const wasPlaying = !player.paused, last = player.position, length = player.duration;
-  player.paused = data.isPaused;
-  player.position = data.position / 1000;
-  player.duration = data.duration / 1000;
-  if (!data.isPaused) showHint("");
-  // The embed stops at the end of the track (or of the 30 s preview).
-  const atEnd = data.duration && data.position >= data.duration - 400;
-  const wrapped = wasPlaying && length && last >= length - 1.5 && data.position < 1000;  // reset to 0 at the end
-  if (data.isPaused && (atEnd || wrapped) && !player.ended) {
-    player.ended = true;
-    trackEnded();
-    return;
-  }
-  renderProgress();
 }
 
 function trackEnded() {
@@ -278,10 +218,8 @@ function trackEnded() {
 }
 
 function toggle() {
-  if (player.index < 0) return;
-  if (player.source === "file") { if (audio.paused) audio.play(); else audio.pause(); }
-  else if (player.source === "spotify" && player.spotify) player.spotify.togglePlay();
-  else if (player.source === "apple") openFull(true);
+  if (player.index < 0 || !current()) return;
+  current().toggle();
 }
 
 function next() {
@@ -296,24 +234,24 @@ function previous() {
 }
 
 function seek(seconds) {
-  if (player.source === "file") audio.currentTime = seconds;
-  else if (player.source === "spotify" && player.spotify) player.spotify.seek(seconds);
+  if (can("seek")) current().seek(seconds);
 }
 
 function applyVolume() {
-  audio.volume = player.muted ? 0 : player.volume / 100;
+  const level = player.muted ? 0 : player.volume / 100;
+  for (const provider of Object.values(PROVIDERS)) if (provider.capabilities.volume) provider.setVolume(level);
   const shown = player.muted ? 0 : player.volume;
   for (const tip of document.querySelectorAll(".pl-vol-tip")) {
     tip.textContent = shown;  // the level while dragging, without "%"
     tip.style.left = `${shown}%`;
   }
-  const level = icon(player.muted || !player.volume ? "volOff" : player.volume < 50 ? "volDown" : "volUp");
-  const own = player.source === "file" || !player.source;
-  for (const el of document.querySelectorAll('[data-pl="mute"]')) { el.innerHTML = level; el.disabled = !own; }
+  const levelIcon = icon(player.muted || !player.volume ? "volOff" : player.volume < 50 ? "volDown" : "volUp");
+  const own = !current() || can("volume");
+  for (const el of document.querySelectorAll('[data-pl="mute"]')) { el.innerHTML = levelIcon; el.disabled = !own; }
   for (const el of document.querySelectorAll(".pl-vol")) {
     el.value = player.muted ? 0 : player.volume;
     el.disabled = !own;
-    el.title = own ? `Volume ${player.muted ? 0 : player.volume}%` : `Use the volume of the ${SOURCE_NAMES[player.source]} player or of the system`;
+    el.title = own ? `Volume ${player.muted ? 0 : player.volume}%` : `Use the volume of the ${current().name} player or of the system`;
   }
 }
 
@@ -328,12 +266,6 @@ function closePlayer() {
   document.body.classList.remove("has-player");
   updateCoverAccent();
 }
-
-audio.addEventListener("play", () => { player.paused = false; showHint(""); renderProgress(); });
-audio.addEventListener("pause", () => { player.paused = true; renderProgress(); });
-audio.addEventListener("timeupdate", () => { player.position = audio.currentTime; player.duration = audio.duration || 0; renderProgress(); });
-audio.addEventListener("ended", trackEnded);
-audio.addEventListener("error", () => { if (player.source === "file" && audio.src) showHint("This file could not be played."); });
 
 /* ---------- lyrics (local server only) ---------- */
 
@@ -360,7 +292,7 @@ async function loadLyrics() {
   } else if (data.synced) {
     box.innerHTML = data.synced.map(([t, line], i) =>
       `<p class="lyric${line ? "" : " gap"}" data-line="${i}" data-t="${t}">${esc(line) || "♪"}</p>`).join("") + credit;
-    if (player.source === "apple") box.insertAdjacentHTML("afterbegin", `<p class="muted">Apple Music does not tell the page the position, so the lines are not followed.</p>`);
+    if (current() && !can("position")) box.insertAdjacentHTML("afterbegin", `<p class="muted">${esc(current().name)} does not tell the page the position, so the lines are not followed.</p>`);
   } else if (data.plain) {
     box.innerHTML = `<p class="muted">Not synced: plain lyrics.</p><div class="lyrics-plain">${esc(data.plain)}</div>${credit}`;
   } else {
@@ -371,7 +303,7 @@ async function loadLyrics() {
 
 function followLyrics(force = false) {
   const lines = player.lyrics && player.lyrics.synced;
-  if (!lines || $("pf-lyrics").hidden || player.source === "apple") return;
+  if (!lines || $("pf-lyrics").hidden || !can("position")) return;
   let current = -1;
   for (let i = 0; i < lines.length && lines[i][0] <= player.position + 0.25; i++) current = i;
   if (current === player.lyricLine && !force) return;
@@ -518,10 +450,10 @@ function renderPlayer() {
   $("pf-artist").innerHTML = `${esc(item.artist)}${item.album ? ` · <a href="#/release/${item.album.id}">${esc(item.album.title)}</a>` : ""}
     · <a href="#/song/${item.id}">Song details</a>`;
   for (const el of document.querySelectorAll("[data-pl-source]")) {
-    el.textContent = `via ${SOURCE_NAMES[player.source] || ""}${player.source === "spotify" ? " (preview unless signed in)" : ""}`;
+    el.textContent = current() ? `via ${current().name}${current().note}` : "";
   }
   $("pf-embed").dataset.source = player.source || "";  // (the Spotify API replaces #pf-spotify by its iframe)
-  const seekable = player.source !== "apple";
+  const seekable = can("seek");
   for (const el of document.querySelectorAll(".pl-seek")) el.disabled = !seekable;
   applyVolume();
   renderModes();
@@ -609,8 +541,8 @@ for (const el of document.querySelectorAll(".pl-vol")) {
 for (const wrap of document.querySelectorAll(".pl-volume")) {
   wrap.addEventListener("click", (event) => {
     event.stopPropagation();
-    if (player.source && player.source !== "file") {
-      flash(`${SOURCE_NAMES[player.source]} does not let websites change its volume: use the volume of your device`);
+    if (current() && !can("volume")) {
+      flash(`${current().name} does not let websites change its volume: use the volume of your device`);
     }
   });
 }
@@ -635,7 +567,7 @@ $("pf-queue").addEventListener("click", (event) => {
 });
 $("pf-lyrics").addEventListener("click", (event) => {
   const line = event.target.closest("[data-t]");
-  if (line && player.source !== "apple") seek(Number(line.dataset.t));
+  if (line && can("seek")) seek(Number(line.dataset.t));
 });
 $("pf-artist").addEventListener("click", (event) => { if (event.target.closest("a")) openFull(false); });
 document.addEventListener("keydown", (event) => {
