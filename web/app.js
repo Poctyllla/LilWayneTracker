@@ -706,7 +706,7 @@ function refreshChips(root = document) {
     let group = select.nextElementSibling;
     if (!group || !group.classList.contains("seg")) {
       group = document.createElement("div");
-      group.className = "seg";
+      group.className = select.dataset.chips === "list" ? "seg seg-list" : "seg";  // "list": a checklist (eras)
       group.setAttribute("role", select.multiple ? "group" : "radiogroup");
       select.after(group);
       select.hidden = true;
@@ -754,6 +754,8 @@ $("reset-filters").addEventListener("click", () => {
   resetAndRender();
 });
 document.addEventListener("click", (event) => {  // close open menus on an outside click
+  // a chip that was just redrawn is no longer in the page: that click was inside the menu
+  if (!event.target.isConnected) return;
   for (const menu of document.querySelectorAll("details.menu[open]")) {
     if (!menu.contains(event.target)) menu.open = false;
   }
@@ -1685,32 +1687,61 @@ function timelineHorizontal(data) {
   const last = Math.max(new Date().getFullYear(), ...data.map((y) => Number(y.year)));
   const left = 24, x = (year) => left + (year - first) * scale;
   const width = x(last + 1) + 24;
-  const ERA_HEAD = 46, YEAR_HEAD = 26, LANE_HEAD = 26, LANE_GAP = 14, CHART = 110;
+  const ERA_HEAD = 46, YEAR_HEAD = 26, LANE_HEAD = 26, LANE_GAP = 12, CHART = 80;
   // Each year is a column; a lane's covers of that year fill a grid inside the column in date
-  // order, so a cover never crosses a year line or another cover at any zoom.
+  // order, so a cover never crosses a year line or another cover at any zoom.  The whole
+  // timeline fits the window height: covers shrink first, then a busy year shows "+N".
+  const inner = scale - 2 * TL_PAD;
+  const laneItems = TL_LANES.map((lane) => data.map((y) => y.releases.filter((r) => lane.types.includes(r.type) && fractionalYear(r.date))
+    .sort((a, b) => fractionalYear(a.date) - fractionalYear(b.date) || a.title.localeCompare(b.title))));
+  const layout = (lane, items, factor) => {
+    const size = Math.max(22, Math.round(tlCoverSize(lane, scale) * factor));
+    const perRow = Math.max(1, Math.floor((inner + TL_GAP) / (size + TL_GAP)));
+    const rowHeight = size + (lane.caption && size >= 48 ? 40 : TL_GAP);
+    const rows = Math.max(1, ...items.map((list) => Math.ceil(list.length / perRow)));
+    return { size, perRow, rowHeight, rows, caption: lane.caption && size >= 48 };
+  };
+  const available = Math.max(440, window.innerHeight - 170);
+  const fixed = ERA_HEAD + YEAR_HEAD + TL_LANES.length * (LANE_HEAD + LANE_GAP) + 8 + CHART + 34;
+  let factor = 1, layouts = [];
+  for (; factor >= 0.5; factor -= 0.05) {
+    layouts = TL_LANES.map((lane, i) => layout(lane, laneItems[i], factor));
+    if (fixed + layouts.reduce((sum, l) => sum + l.rows * l.rowHeight, 0) <= available) break;
+  }
+  // still too tall at the smallest covers: each lane gets rows in proportion to its need
+  const need = layouts.reduce((sum, l) => sum + l.rows * l.rowHeight, 0);
+  if (fixed + need > available) {
+    for (const l of layouts) l.maxRows = Math.max(1, Math.floor(((available - fixed) * (l.rows * l.rowHeight / need)) / l.rowHeight));
+  }
   let top = ERA_HEAD + YEAR_HEAD;
   const labels = [];  // lane names stay at the left edge while the canvas scrolls
-  const laneHtml = TL_LANES.map((lane) => {
-    const size = tlCoverSize(lane, scale);
-    const inner = scale - 2 * TL_PAD;
-    const perRow = Math.max(1, Math.floor((inner + TL_GAP) / (size + TL_GAP)));
+  const laneHtml = TL_LANES.map((lane, laneIndex) => {
+    const { size, perRow, rowHeight, caption } = layouts[laneIndex];
+    const maxRows = layouts[laneIndex].maxRows || layouts[laneIndex].rows;
     const gridWidth = perRow * size + (perRow - 1) * TL_GAP;
-    const rowHeight = size + (lane.caption ? 40 : TL_GAP);
     const laneTop = top;
     let rows = 1;
-    const cells = data.map((y) => {
-      const items = y.releases.filter((r) => lane.types.includes(r.type) && fractionalYear(r.date))
-        .sort((a, b) => fractionalYear(a.date) - fractionalYear(b.date) || a.title.localeCompare(b.title));
-      rows = Math.max(rows, Math.ceil(items.length / perRow));
+    const cells = data.map((y, yearIndex) => {
+      let items = laneItems[laneIndex][yearIndex];
+      const capacity = maxRows * perRow;
+      const hidden = items.length > capacity ? items.slice(capacity - 1) : [];
+      if (hidden.length) items = items.slice(0, capacity - 1);
+      rows = Math.max(rows, Math.ceil((items.length + (hidden.length ? 1 : 0)) / perRow));
       const x0 = x(Number(y.year)) + TL_PAD + (inner - gridWidth) / 2;
-      return items.map((r, i) => {
+      const more = hidden.length ? (() => {
+        const i = items.length;
+        const cx = x0 + (i % perRow) * (size + TL_GAP), cy = laneTop + LANE_HEAD + Math.floor(i / perRow) * rowHeight;
+        return `<button type="button" class="htl-more" data-year="${esc(y.year)}" style="left:${cx}px;top:${cy}px;width:${size}px;height:${size}px"
+          data-tip="${esc(`${y.year}: ${hidden.length} more|${hidden.slice(0, 12).map((r) => r.title).join(", ")}${hidden.length > 12 ? " …" : ""}|Click: the year in the list view`)}">+${hidden.length}</button>`;
+      })() : "";
+      return more + items.map((r, i) => {
         const approx = !/^\d{4}-\d{2}-\d{2}$/.test(r.date);
         const type = (RELEASE_TYPES[r.type] || r.type).replace(/s$/, "");
         const cx = x0 + (i % perRow) * (size + TL_GAP), cy = laneTop + LANE_HEAD + Math.floor(i / perRow) * rowHeight;
         return `<a class="htl-item${approx ? " approx" : ""}" href="#/release/${r.id}" style="left:${cx}px;top:${cy}px;width:${size}px"
           data-tip="${esc(`${r.title}|${type} · ${fmtDate(r.date)}${approx ? " (date not exact)" : ""}${r.editions > 1 ? `|${r.editions} editions` : ""}`)}">
           <img src="covers/${esc(r.cover_file || "artist.jpg")}" alt="" loading="lazy" style="width:${size}px;height:${size}px">
-          ${lane.caption ? `<span class="htl-caption" style="width:${size + TL_GAP}px">${esc(r.title)}</span>` : ""}</a>`;
+          ${caption ? `<span class="htl-caption" style="width:${size + TL_GAP}px">${esc(r.title)}</span>` : ""}</a>`;
       }).join("");
     }).join("");
     top += LANE_HEAD + rows * rowHeight + LANE_GAP;
@@ -1793,6 +1824,13 @@ function wireTimelineScroll() {
   box.addEventListener("scroll", () => { state.timelineCenter = (box.scrollLeft + box.clientWidth / 2) / box.scrollWidth; }, { passive: true });
 }
 $("timeline").addEventListener("click", (event) => {
+  const more = event.target.closest(".htl-more");
+  if (more) {
+    state.timelineView = "list";
+    try { localStorage.setItem("lwt-timeline-view", "list"); } catch (e) { /* storage unavailable */ }
+    renderTimeline().then(() => { const section = document.getElementById(`tl-year-${more.dataset.year}`); if (section) section.scrollIntoView(); });
+    return;
+  }
   const zoom = event.target.closest("[data-zoom]");
   const view = event.target.closest("[data-timeline-view]");
   if (zoom) {
@@ -1808,7 +1846,7 @@ function timelineList() {
   return `<div class="timeline">${state.timeline.map((y) => {
     const { active, marks } = yearEras(y.year);
     return `
-    <section class="year"><div class="year-label">${esc(y.year)}
+    <section class="year" id="tl-year-${esc(y.year)}"><div class="year-label">${esc(y.year)}
       ${active.map((e) => `<a class="year-era" href="#/era/${e.id}">${coverImg(e, "tiny")}${esc(eraName(e))}</a>`).join("")}</div>
       <div class="year-body">
       ${marks.map((m) => `<a class="era-mark ${m.kind}" href="#/era/${m.era.id}">${m.kind === "begins" ? "▶" : "■"}

@@ -179,7 +179,8 @@ Object.assign(providerHost, {
     renderProgress();
   },
   ended() {
-    if (player.ended) return;
+    // an "end" within 2 s of starting is a stale report of the previous track, not the end of this one
+    if (player.ended || Date.now() - (player.startedAt || 0) < 2000) return;
     player.ended = true;
     trackEnded();
   },
@@ -226,6 +227,7 @@ async function playCurrent(replay = false) {
   player.duration = 0;
   player.paused = true;
   player.ended = false;
+  player.startedAt = Date.now();
   player.lyricLine = -1;
   showHint("");
   $("player").hidden = false;

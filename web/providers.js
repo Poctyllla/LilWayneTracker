@@ -178,6 +178,7 @@ const spotifyProvider = {
     this.active = true;
     this.ended = false;
     this.trackId = id;
+    this.started = false;
     this.state = { paused: true, position: 0, duration: 0 };
     const player = await spotifySdk.load();
     if (!this.active || this.trackId !== id) return;
@@ -203,12 +204,19 @@ const spotifyProvider = {
   onSdkState(state) {
     if (!this.active || this.mode !== "sdk" || !state) return;
     const current = state.track_window && state.track_window.current_track;
+    const ours = current && (current.id === this.trackId || (current.linked_from && current.linked_from.id === this.trackId));
+    // Right after a play request Spotify still reports the previous track: wait until ours plays,
+    // otherwise "another track" would look like the end and skip through the queue.
+    if (!this.started) {
+      if (!ours || state.paused) return;
+      this.started = true;
+    }
     const last = this.state;
     this.state = { paused: state.paused, position: state.position / 1000, duration: state.duration / 1000 };
     if (!state.paused) providerHost.hint("");
     // the end: Spotify pauses at 0 after the last second, or moved on to another track
     const finished = state.paused && state.position === 0 && !last.paused && last.duration && last.position >= last.duration - 2.5;
-    const movedOn = current && this.trackId && current.id !== this.trackId && !(current.linked_from && current.linked_from.id === this.trackId);
+    const movedOn = current && this.trackId && !ours;
     if ((finished || movedOn) && !this.ended) {
       this.ended = true;
       if (movedOn) spotifySdk.player.pause();
