@@ -203,6 +203,14 @@ def merge(connection, keep_id, drop_id):
                            "VALUES (?, ?, 'merge', ?)", (keep_id, drop_title, f"Merged recording {drop_id}"))
     connection.execute("UPDATE recordings SET genius_song_id = COALESCE(genius_song_id, ?) WHERE id = ?",
                        (drop_genius, keep_id))
+    # videos, chart peaks and certifications (tables added Nov 15, 2026) follow the song
+    tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "video_recordings" in tables:
+        connection.execute("UPDATE OR IGNORE video_recordings SET recording_id = ? WHERE recording_id = ?", (keep_id, drop_id))
+        connection.execute("DELETE FROM video_recordings WHERE recording_id = ?", (drop_id,))
+    for table in ("chart_entries", "certifications"):
+        if table in tables:
+            connection.execute(f"UPDATE {table} SET recording_id = ? WHERE recording_id = ?", (keep_id, drop_id))
     drop_musicbrainz_id = connection.execute(
         "SELECT musicbrainz_recording_id FROM recordings WHERE id = ?", (drop_id,)
     ).fetchone()[0]

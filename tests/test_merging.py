@@ -189,6 +189,20 @@ class MergeTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_merge_moves_videos(self):
+        """A video of the dropped song belongs to the kept one afterwards (no foreign key left behind)."""
+        connection = self.connect()
+        try:
+            (keep_id, drop_id, _), = find_pairs(connection)[0]
+            with connection:
+                video = connection.execute("INSERT INTO videos (youtube_id, title, kind) VALUES ('abcdefghijk', 'Clip', 'music_video')").lastrowid
+                connection.execute("INSERT INTO video_recordings (video_id, recording_id) VALUES (?, ?)", (video, drop_id))
+                merge(connection, keep_id, drop_id)
+            self.assertEqual(connection.execute("SELECT recording_id FROM video_recordings").fetchall(), [(keep_id,)])
+            self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
+        finally:
+            connection.close()
+
 
 # ---------- merge_safeguards ----------
 
