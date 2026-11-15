@@ -167,7 +167,7 @@ def apply(connection, actions):
         genius = action["genius"][0] if action["genius"] else {}
         recording_id = connection.execute("""
             INSERT INTO recordings (title, artist_id, musicbrainz_recording_id, genius_song_id,
-                                    recording_date, availability_override, appearance)
+                                    first_known_date, availability_override, appearance)
             VALUES (?, ?, ?, ?, ?, ?, 'guest')
         """, (action["title"], main_id, mb_ids[0] if mb_ids else None, genius.get("id"), action["date"],
               "released" if action["released"] else None)).lastrowid

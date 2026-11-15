@@ -439,10 +439,10 @@ def song(connection, recording_id):
     result["first_known_date"] = connection.execute(
         "SELECT first_known_date FROM recordings WHERE id = ?", (recording_id,)).fetchone()[0] \
         if has_column(connection, "recordings", "first_known_date") else None
+    result["genius_album"] = genius_album(result) if not any(v["tracks"] for v in result["versions"]) else None
     result["history"] = song_history(result)
     result["former"] = former(result)
     result["connections"] = song_connections(connection, result)
-    result["genius_album"] = genius_album(result) if not any(v["tracks"] for v in result["versions"]) else None
     result["videos"] = videos(connection, recording_id)
     result["cover_file"] = song_covers_for(connection, recording_id)
     album = song_albums(connection).get(recording_id) if head["appearance"] != "guest" else None
@@ -479,7 +479,12 @@ def song_history(song):
 
     if song.get("recording_date"):
         add(song["recording_date"], "recorded", "Recorded")
-    if song.get("first_known_date"):
+    album = song.get("genius_album")
+    if song.get("first_known_date") and album and song.get("availability") == "released":
+        # released on another artist's album that is not a release of this catalogue
+        add(song["first_known_date"], "released",
+            f"Released on {album['name']}" + (f" by {album['artist']}" if album.get("artist") else ""))
+    elif song.get("first_known_date"):
         source = next((s["name"] for s in song.get("sources", [])
                        if (s.get("notes") or "").startswith("First known date")), None)
         add(song["first_known_date"], "first_known", "First known" + (f" ({source})" if source else ""))

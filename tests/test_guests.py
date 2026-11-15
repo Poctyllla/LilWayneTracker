@@ -83,7 +83,7 @@ class ApplyTests(unittest.TestCase):
         with self.c:
             apply(self.c, actions)
         q = lambda sql, *a: self.c.execute(sql, a).fetchall()
-        forever = q("SELECT r.id, a.name, r.appearance, r.musicbrainz_recording_id, r.recording_date "
+        forever = q("SELECT r.id, a.name, r.appearance, r.musicbrainz_recording_id, r.first_known_date "
                     "FROM recordings r JOIN artists a ON a.id = r.artist_id WHERE r.title = 'Forever'")[0]
         self.assertEqual(forever[1:], ("Drake", "guest", "mb-1", "2009-08-28"))
         self.assertEqual(q("SELECT availability FROM recording_availability WHERE recording_id = ?", forever[0]),

@@ -200,7 +200,7 @@ def apply(connection, actions):
         genius = first_genius(action)
         if kind == "song":
             recording_id = connection.execute(
-                "INSERT INTO recordings (title, artist_id, genius_song_id, recording_date) VALUES (?, ?, ?, ?)",
+                "INSERT INTO recordings (title, artist_id, genius_song_id, first_known_date) VALUES (?, ?, ?, ?)",
                 (action["title"], wayne, genius.get("id"), genius_date(genius.get("release_date")))).lastrowid
             created[song_key(action["title"])] = recording_id
             link_sources(connection, action, recording_id=recording_id)
