@@ -19,16 +19,14 @@ import re
 import sqlite3
 from pathlib import Path
 
-from import_release import DATABASE_PATH
+from import_release import ARTIST_ALIASES_PATH, DATABASE_PATH, artist_key
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 IMAGES_PATH = PROJECT_ROOT / "data" / "artist_images.json"
-ALIASES_PATH = PROJECT_ROOT / "data" / "artist_aliases.json"
+ALIASES_PATH = ARTIST_ALIASES_PATH
 
 
-def name_key(name):
-    """"Curren$y" = "Currensy", "T-Pain" = "t pain": letters and digits only, "$" read as "s"."""
-    return re.sub(r"[^0-9a-z]", "", str(name or "").casefold().replace("&", "and").replace("$", "s"))
+name_key = artist_key  # the same key as get_or_create_artist (import_release.py)
 
 
 def untidy(name):

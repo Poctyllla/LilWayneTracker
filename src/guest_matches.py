@@ -152,16 +152,19 @@ def attach_to_catalogued(connection, song, recording_id):
                                           "Genius song page")
     if DJ_HOST.match(song["main_artist"]):
         return  # a mixtape host is not a performer of the track
-    credited = {name for (name,) in connection.execute("""
-        SELECT a.name FROM credits c JOIN artists a ON a.id = c.artist_id LEFT JOIN versions v ON v.id = c.version_id
+    credited = {artist_id for (artist_id,) in connection.execute("""
+        SELECT c.artist_id FROM credits c LEFT JOIN versions v ON v.id = c.version_id
         WHERE c.recording_id = ? OR v.recording_id = ?
     """, (recording_id, recording_id))}
     for credit in guest_appearances.song_credits(song):
-        if credit["artist"] == guest_appearances.WAYNE or credit["artist"] in credited:
+        if credit["artist"] == guest_appearances.WAYNE:
+            continue
+        artist_id = get_or_create_artist(connection, credit["artist"])  # "T Pain" finds T-Pain
+        if artist_id in credited:
             continue
         connection.execute("INSERT INTO credits (artist_id, recording_id, role) VALUES (?, ?, ?)",
-                           (get_or_create_artist(connection, credit["artist"]), recording_id, credit["role"]))
-        credited.add(credit["artist"])
+                           (artist_id, recording_id, credit["role"]))
+        credited.add(artist_id)
 
 
 def main(argv=None):

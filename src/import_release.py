@@ -4,6 +4,8 @@ import_release_data() runs inside the caller's transaction; the entry point is
 import_release_group.py, which imports all editions of a package atomically.
 """
 
+import json
+import re
 from pathlib import Path
 
 from duplicate_guard import (
@@ -17,11 +19,65 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATABASE_PATH = PROJECT_ROOT / "data" / "lilwayne.db"
 
 
+ARTIST_ALIASES_PATH = PROJECT_ROOT / "data" / "artist_aliases.json"
+_ARTIST_INDEX = {}  # id(connection) -> {artist key: (artist id, key of that artist's name)}; no connection is kept
+
+
+def artist_key(name):
+    """One person, one key: case and punctuation ignored, "$" read as "s"
+    ("T-Pain" = "t pain", "Curren$y" = "Currensy") -- merge_artists.py uses the same."""
+    return re.sub(r"[^0-9a-z]", "", str(name or "").casefold().replace("&", "and").replace("$", "s"))
+
+
+def _artist_index(connection):
+    """{artist key: id} of the artists, plus the other names of data/artist_aliases.json
+    ("Byron Thomas" -> Mannie Fresh); built once per connection."""
+    cached = _ARTIST_INDEX.get(id(connection))
+    if cached is not None:
+        return cached
+    index = {}
+    for artist_id, name in connection.execute("SELECT id, name FROM artists ORDER BY id"):
+        index.setdefault(artist_key(name), (artist_id, artist_key(name)))
+    if ARTIST_ALIASES_PATH.exists():
+        for pair in json.loads(ARTIST_ALIASES_PATH.read_text(encoding="utf-8")).get("pairs", []):
+            stage = index.get(artist_key(pair[0]))
+            if stage is not None:
+                index.setdefault(artist_key(pair[1]), stage)
+    _ARTIST_INDEX[id(connection)] = index
+    return index
+
+
+def _indexed_artist(connection, key):
+    """The indexed artist of a key, checked against the database (an id of a closed
+    connection can be reused by another one: then the index is built again)."""
+    for attempt in range(2):
+        index = _artist_index(connection)
+        if key not in index:
+            return None, index
+        artist_id, target_key = index[key]
+        row = connection.execute("SELECT name FROM artists WHERE id = ?", (artist_id,)).fetchone()
+        if row and artist_key(row[0]) == target_key:
+            return artist_id, index
+        _ARTIST_INDEX.pop(id(connection), None)
+    return None, _artist_index(connection)
+
+
 def get_or_create_artist(connection, name):
+    """The artist of that name -- an existing one under another spelling or an alias
+    first, so that imports do not create the same person twice."""
     if not name or name.strip().lower() == "unknown artist":
         raise ValueError("Invalid artist name.")
 
     name = name.strip()
+
+    exact = connection.execute("SELECT id FROM artists WHERE name = ?", (name,)).fetchone()
+    if exact:
+        return exact[0]
+    key = artist_key(name)
+    if key:
+        found, index = _indexed_artist(connection, key)
+        if found is not None:
+            return found
 
     connection.execute("""
         INSERT OR IGNORE INTO artists (name)
@@ -33,6 +89,8 @@ def get_or_create_artist(connection, name):
         WHERE name = ?
     """, (name,)).fetchone()
 
+    if key:
+        index[key] = (result[0], key)
     return result[0]
 
 

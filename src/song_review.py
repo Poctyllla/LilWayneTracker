@@ -113,7 +113,17 @@ def plan(connection, decisions, crosscheck_songs=()):
                 result.append((decision, "guest song not in the latest survey"))
             elif action == "guest_same":
                 ok = exists(connection, decision["recording"])
-                result.append(({**decision, "song": song}, "apply" if ok else
+                ids = {row[0] for row in connection.execute(
+                    "SELECT musicbrainz_recording_id FROM recording_musicbrainz_ids WHERE recording_id = ? "
+                    "UNION SELECT musicbrainz_recording_id FROM recordings WHERE id = ?",
+                    (decision["recording"], decision["recording"]))}
+                pages = {row[0] for row in connection.execute(
+                    "SELECT s.url FROM recording_sources rs JOIN sources s ON s.id = rs.source_id WHERE rs.recording_id = ?",
+                    (decision["recording"],))}
+                attached = (ok and (song["musicbrainz"] or song["genius"])
+                            and all(mb["id"] in ids for mb in song["musicbrainz"])
+                            and all(g["url"] in pages for g in song["genius"]))  # attached before: nothing to repeat
+                result.append(({**decision, "song": song}, "done" if attached else "apply" if ok else
                                f"recording {decision['recording']} is missing"))
             else:
                 actions, _ = guest_appearances.plan({"songs": [{**song, "in_catalogue": []}]}, connection)
