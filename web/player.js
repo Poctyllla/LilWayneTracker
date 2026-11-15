@@ -697,5 +697,30 @@ renderModes();
 applyVolume();
 renderProgress();
 
+// Keyboard: Space play / pause, ← → 5 s, Shift + ← → previous / next song, ↑ ↓ volume, M mute,
+// F full player, Esc closes it (not while typing in a field).
+document.addEventListener("keydown", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  if ((target && target.closest("input, textarea, select, [contenteditable]")) || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (document.querySelector("dialog[open]")) return;
+  if (player.index < 0 && event.key !== "?") return;
+  const key = event.key;
+  if (key === " ") { event.preventDefault(); toggle(); }
+  else if (key === "ArrowRight" && event.shiftKey) { event.preventDefault(); next(); }
+  else if (key === "ArrowLeft" && event.shiftKey) { event.preventDefault(); previous(); }
+  else if (key === "ArrowRight") { event.preventDefault(); seek(Math.min(player.duration || 0, player.position + 5)); }
+  else if (key === "ArrowLeft") { event.preventDefault(); seek(Math.max(0, player.position - 5)); }
+  else if (key === "ArrowUp" || key === "ArrowDown") {
+    if (!can("volume")) return;
+    event.preventDefault();
+    player.volume = Math.max(0, Math.min(100, (player.muted ? 0 : player.volume) + (key === "ArrowUp" ? 5 : -5)));
+    player.muted = player.volume === 0;
+    savePlayer();
+    applyVolume();
+    flash(`Volume ${player.volume}%`);
+  } else if (key === "m" || key === "M") ACTIONS.mute();
+  else if (key === "f" || key === "F") openFull(!isFullOpen());
+});
+
 // Opening a video (Videos tab) pauses the music (app.js openVideo).
 window.stopAllPlayback = () => { if (player.index >= 0 && !player.paused) toggle(); };

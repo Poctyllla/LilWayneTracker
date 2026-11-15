@@ -1011,3 +1011,5 @@ dialog.video-dialog::backdrop { background: rgba(0,0,0,.7); }
 .icon-mini:hover { color: var(--text); border-color: var(--accent); }
 .lib-list { border-top: 1px solid var(--line); padding: 8px 0; }
 .lib-list summary { cursor: pointer; }
+
+.shortcuts kbd { font: inherit; font-size: 11px; padding: 1px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-2); }

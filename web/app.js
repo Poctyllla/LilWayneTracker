@@ -383,7 +383,8 @@ async function openSong(id) {
         ${song.former ? `<span class="tag former" title="Known ${esc(fmtDate(song.former.known))}, released ${esc(fmtDate(song.former.released))}">Leaked before release</span>` : ""}</div>
       ${song.aliases.length ? `<p class="muted">Also known as: ${esc(song.aliases.join(", "))}</p>` : ""}
       <div class="head-play">${main ? playButton(main.play, `data-play-version="${main.id}"`) : ""}
-        ${favButton(song.id, true)}<button type="button" class="act ghost" data-playlist-add="${song.id}">＋ Playlist</button></div>
+        ${favButton(song.id, true)}<button type="button" class="act ghost" data-playlist-add="${song.id}">＋ Playlist</button>
+        <button type="button" class="act ghost" data-share="#/song/${song.id}${main ? "/play" : ""}" title="Copy a link that opens (and plays) this song">↗ Share</button></div>
       ${song.listen.length ? `<div class="listen">${serviceLinks(song.listen.map((l) => l.url))}</div>` : ""}
       ${lyricsLink(song)}
     </div></div>
@@ -1445,6 +1446,15 @@ $("shuffle-shown").addEventListener("click", () => {
   window.startRadio(songs.length ? songs : state.shown || [], "songs shown");
 });
 
+// Share: copy the page link of a song (with /play: the song starts when the link is opened).
+document.addEventListener("click", async (event) => {
+  const share = event.target.closest("[data-share]");
+  if (!share) return;
+  const url = `${location.origin}${location.pathname}${share.dataset.share}`;
+  try { await navigator.clipboard.writeText(url); if (window.flash) flash("Link copied"); }
+  catch (e) { prompt("Copy this link", url); }
+});
+
 /* ---------- charts and certifications (Wikipedia, charts_source.py) ---------- */
 const CHART_NAMES = { US: "Billboard Hot 100", "US R&B/HH": "Hot R&B/Hip-Hop Songs", "US Rap": "Hot Rap Songs", CAN: "Canadian Hot 100",
                       UK: "UK Singles Chart", AUS: "ARIA", NZ: "New Zealand", IRL: "Ireland", FRA: "France", SWI: "Switzerland" };
@@ -1775,14 +1785,21 @@ function showTab(name) {
 }
 
 async function route() {
-  let [, kind, id] = (location.hash.match(/^#\/(\w+)(?:\/(\d+))?/) || []);
+  let [, kind, id, action] = (location.hash.match(/^#\/(\w+)(?:\/(\d+))?(?:\/(play))?/) || []);
   if (!kind) kind = "home";  // the start page
   if (kind === "review") { location.hash = "#/songs"; return; }  // the "Needs review" page was removed (owner, Nov 15, 2026)
   if (kind in SECTION_NAMES) showTab(kind);
   if (kind === "eras") { $("era-grid").hidden = false; $("era-view-bar").hidden = false; $("era-detail").hidden = true; }
   try {
     if (kind === "era" && id) { showTab("eras"); $("panel").hidden = true; await openEra(id); }
-    else if (kind === "song" && id) await openSong(id);
+    else if (kind === "song" && id) {
+      await openSong(id);
+      if (action === "play") {  // a shared link: start the song (the browser may still ask for a click)
+        const button = document.querySelector("#panel-body .head-play .play-btn:not([data-add])");
+        if (button) button.click();
+        history.replaceState(null, "", `#/song/${id}`);
+      }
+    }
     else if (kind === "release" && id) await openRelease(id);
     else if (kind === "artist" && id) await openArtist(id);
     else $("panel").hidden = true;
