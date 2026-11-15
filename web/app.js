@@ -1379,10 +1379,16 @@ function yearEras(year) {
 /* ---------- timeline: horizontal (eras as bands, covers on lanes, leaks per year) or a list ---------- */
 const TIMELINE_VIEWS = { horizontal: "↔ Horizontal", list: "☰ List" };
 const TL_LANES = [
-  { key: "albums", label: "Albums", types: ["studio_album", "collaboration_album", "group_album"], size: 84, caption: true },
-  { key: "mixtapes", label: "Mixtapes", types: ["mixtape"], size: 60, caption: false },
-  { key: "singles", label: "Singles & EPs", types: ["single", "group_single", "ep"], size: 42, caption: false },
+  { key: "albums", label: "Albums", types: ["studio_album", "collaboration_album", "group_album"], size: 84, min: 56, max: 150, caption: true },
+  { key: "mixtapes", label: "Mixtapes", types: ["mixtape"], size: 60, min: 40, max: 110, caption: false },
+  { key: "singles", label: "Singles & EPs", types: ["single", "group_single", "ep"], size: 42, min: 30, max: 80, caption: false },
 ];
+const TL_PAD = 8, TL_GAP = 6, TL_SCALES = [110, 160, 240, 340, 480, 680, 900];
+
+// Cover size of a lane at a zoom (pixels per year): grows with the zoom, never wider than a year column.
+function tlCoverSize(lane, scale) {
+  return Math.max(Math.min(lane.min, scale - 2 * TL_PAD), Math.min(lane.max, scale - 2 * TL_PAD, Math.round(lane.size * Math.sqrt(scale / 240))));
+}
 
 // "2008-06-10" -> 2008.44; a year / month only sits in its middle (marked as approximate)
 function fractionalYear(date) {
@@ -1410,38 +1416,46 @@ async function renderTimeline() {
 }
 
 function timelineHorizontal(data) {
-  const scale = state.timelineScale ||= 240;  // pixels per year
+  if (!state.timelineScale) {
+    try { state.timelineScale = TL_SCALES.includes(Number(localStorage.getItem("lwt-timeline-scale"))) ? Number(localStorage.getItem("lwt-timeline-scale")) : 240; }
+    catch (e) { state.timelineScale = 240; }
+  }
+  const scale = state.timelineScale;  // pixels per year
   const first = Math.min(...data.map((y) => Number(y.year)));
   const last = Math.max(new Date().getFullYear(), ...data.map((y) => Number(y.year)));
   const left = 24, x = (year) => left + (year - first) * scale;
   const width = x(last + 1) + 24;
-  const ERA_HEAD = 46, LANE_GAP = 18, CHART = 110;
-  // releases on lanes; covers that would overlap go to the next row of the lane
-  let top = ERA_HEAD + 10;
+  const ERA_HEAD = 46, YEAR_HEAD = 26, LANE_HEAD = 26, LANE_GAP = 14, CHART = 110;
+  // Each year is a column; a lane's covers of that year fill a grid inside the column in date
+  // order, so a cover never crosses a year line or another cover at any zoom.
+  let top = ERA_HEAD + YEAR_HEAD;
   const labels = [];  // lane names stay at the left edge while the canvas scrolls
   const laneHtml = TL_LANES.map((lane) => {
-    const items = data.flatMap((y) => y.releases).filter((r) => lane.types.includes(r.type))
-      .map((r) => ({ ...r, at: fractionalYear(r.date) })).filter((r) => r.at).sort((a, b) => a.at - b.at);
-    const rows = [];
-    const placed = items.map((r) => {
-      const cx = x(r.at) - lane.size / 2;
-      let row = rows.findIndex((end) => cx >= end + 6);
-      if (row < 0) { rows.push(0); row = rows.length - 1; }
-      rows[row] = cx + lane.size;
-      return { r, cx, row };
-    });
-    const rowHeight = lane.size + (lane.caption ? 34 : 8);
+    const size = tlCoverSize(lane, scale);
+    const inner = scale - 2 * TL_PAD;
+    const perRow = Math.max(1, Math.floor((inner + TL_GAP) / (size + TL_GAP)));
+    const gridWidth = perRow * size + (perRow - 1) * TL_GAP;
+    const rowHeight = size + (lane.caption ? 40 : TL_GAP);
     const laneTop = top;
-    top += Math.max(1, rows.length) * rowHeight + LANE_GAP;
-    labels.push(`<div class="htl-lane-label" style="top:${laneTop - 2}px">${esc(lane.label)}</div>`);
-    return placed.map(({ r, cx, row }) => {
-      const approx = !/^\d{4}-\d{2}-\d{2}$/.test(r.date);
-      const type = (RELEASE_TYPES[r.type] || r.type).replace(/s$/, "");
-      return `<a class="htl-item${approx ? " approx" : ""}" href="#/release/${r.id}" style="left:${cx}px;top:${laneTop + row * rowHeight}px;width:${lane.size}px"
-        data-tip="${esc(`${r.title}|${type} · ${fmtDate(r.date)}${approx ? " (date not exact)" : ""}${r.editions > 1 ? `|${r.editions} editions` : ""}`)}">
-        <img src="covers/${esc(r.cover_file || "artist.jpg")}" alt="" loading="lazy" style="width:${lane.size}px;height:${lane.size}px">
-        ${lane.caption ? `<span class="htl-caption">${esc(r.title)}</span>` : ""}</a>`;
+    let rows = 1;
+    const cells = data.map((y) => {
+      const items = y.releases.filter((r) => lane.types.includes(r.type) && fractionalYear(r.date))
+        .sort((a, b) => fractionalYear(a.date) - fractionalYear(b.date) || a.title.localeCompare(b.title));
+      rows = Math.max(rows, Math.ceil(items.length / perRow));
+      const x0 = x(Number(y.year)) + TL_PAD + (inner - gridWidth) / 2;
+      return items.map((r, i) => {
+        const approx = !/^\d{4}-\d{2}-\d{2}$/.test(r.date);
+        const type = (RELEASE_TYPES[r.type] || r.type).replace(/s$/, "");
+        const cx = x0 + (i % perRow) * (size + TL_GAP), cy = laneTop + LANE_HEAD + Math.floor(i / perRow) * rowHeight;
+        return `<a class="htl-item${approx ? " approx" : ""}" href="#/release/${r.id}" style="left:${cx}px;top:${cy}px;width:${size}px"
+          data-tip="${esc(`${r.title}|${type} · ${fmtDate(r.date)}${approx ? " (date not exact)" : ""}${r.editions > 1 ? `|${r.editions} editions` : ""}`)}">
+          <img src="covers/${esc(r.cover_file || "artist.jpg")}" alt="" loading="lazy" style="width:${size}px;height:${size}px">
+          ${lane.caption ? `<span class="htl-caption" style="width:${size + TL_GAP}px">${esc(r.title)}</span>` : ""}</a>`;
+      }).join("");
     }).join("");
+    top += LANE_HEAD + rows * rowHeight + LANE_GAP;
+    labels.push(`<div class="htl-lane-label" style="top:${laneTop + 3}px">${esc(lane.label)}</div>`);
+    return `<div class="htl-lane-line" style="top:${laneTop}px;width:${width}px"></div>${cells}`;
   }).join("");
   const chartTop = top + 8, height = chartTop + CHART + 34;
   // eras as bands over the whole height
@@ -1454,7 +1468,9 @@ function timelineHorizontal(data) {
   }).join("");
   const years = [];
   for (let y = first; y <= last + 1; y++) {
-    years.push(`<div class="htl-year" style="left:${x(y)}px;height:${height - ERA_HEAD}px;top:${ERA_HEAD}px"><span>${y <= last ? y : ""}</span></div>`);
+    const count = (data.find((d) => Number(d.year) === y) || { releases: [] }).releases.length;
+    years.push(`<div class="htl-year" style="left:${x(y)}px;height:${height - ERA_HEAD}px;top:${ERA_HEAD}px"><span>${y <= last ? y : ""}${
+      y <= last && count ? ` <small>${count}</small>` : ""}</span></div>`);
   }
   // leaks per year: bootlegs released + unreleased versions first known that year (one series: the title names it)
   const leaks = data.map((y) => ({ year: Number(y.year), bootlegs: y.bootlegs || 0, known: y.first_known || 0 }));
@@ -1477,6 +1493,17 @@ function timelineHorizontal(data) {
 }
 
 // Drag or wheel to scroll sideways; zoom keeps the middle of the view in place.
+// One zoom step; the middle of the view stays in place (state.timelineCenter).
+function zoomTimeline(step) {
+  const now = state.timelineScale || 240;
+  const index = TL_SCALES.reduce((best, s, i) => Math.abs(s - now) < Math.abs(TL_SCALES[best] - now) ? i : best, 0);
+  const next = TL_SCALES[Math.max(0, Math.min(TL_SCALES.length - 1, index + step))];
+  if (next === now) return;
+  state.timelineScale = next;
+  try { localStorage.setItem("lwt-timeline-scale", String(next)); } catch (e) { /* storage unavailable */ }
+  renderTimeline();
+}
+
 function wireTimelineScroll() {
   const box = $("htl-scroll");
   if (!box) return;
@@ -1493,6 +1520,11 @@ function wireTimelineScroll() {
   box.addEventListener("pointerleave", () => { drag = null; });
   box.addEventListener("click", (event) => { if (drag && drag.moved) { event.preventDefault(); event.stopPropagation(); } }, true);
   box.addEventListener("wheel", (event) => {
+    if (event.ctrlKey) {  // ctrl + wheel or a trackpad pinch zooms
+      event.preventDefault();
+      if (!box.dataset.zooming) { box.dataset.zooming = "1"; zoomTimeline(event.deltaY < 0 ? 1 : -1); }
+      return;
+    }
     if (Math.abs(event.deltaY) > Math.abs(event.deltaX) && !event.shiftKey) {
       box.scrollLeft += event.deltaY;
       event.preventDefault();
@@ -1504,8 +1536,7 @@ $("timeline").addEventListener("click", (event) => {
   const zoom = event.target.closest("[data-zoom]");
   const view = event.target.closest("[data-timeline-view]");
   if (zoom) {
-    state.timelineScale = Math.max(110, Math.min(900, (state.timelineScale || 240) * (zoom.dataset.zoom === "1" ? 1.4 : 1 / 1.4)));
-    renderTimeline();
+    zoomTimeline(Number(zoom.dataset.zoom));
   } else if (view) {
     state.timelineView = view.dataset.timelineView;
     try { localStorage.setItem("lwt-timeline-view", state.timelineView); } catch (e) { /* storage unavailable */ }

@@ -757,7 +757,9 @@ body.has-player .modal-backdrop { bottom: 76px; }
                  font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; }
 .htl-era-label > span { overflow: hidden; text-overflow: ellipsis; }
 .htl-year { position: absolute; width: 0; border-left: 1px solid var(--line); pointer-events: none; }
-.htl-year span { position: absolute; top: 2px; left: 6px; font-size: 13px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.htl-year small { font-weight: 500; opacity: .7; }
+.htl-lane-line { position: absolute; left: 0; height: 0; border-top: 1px dashed var(--line); pointer-events: none; }
+.htl-year span { position: absolute; top: 4px; white-space: nowrap; left: 6px; font-size: 13px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
 .htl-lane-label { position: absolute; left: 8px; font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
                   color: var(--muted); pointer-events: none; z-index: 2; }
 .htl-item { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 4px; text-decoration: none;
@@ -766,7 +768,7 @@ body.has-player .modal-backdrop { bottom: 76px; }
 .htl-item:hover { z-index: 5; }
 .htl-item:hover img { transform: scale(1.12); }
 .htl-item.approx img { outline: 2px dashed var(--muted); outline-offset: 2px; }
-.htl-caption { width: 120%; font-size: 12px; font-weight: 600; text-align: center; line-height: 1.2; overflow: hidden;
+.htl-caption { font-size: 12px; font-weight: 600; text-align: center; line-height: 1.2; overflow: hidden;
                display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; text-shadow: 0 1px 2px var(--surface); }
 .htl-chart-label { position: absolute; left: 8px; font-size: 12px; font-weight: 600; color: var(--muted); z-index: 2; }
 .htl-axis { position: absolute; left: 0; height: 1px; background: var(--line); }

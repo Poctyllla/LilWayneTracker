@@ -111,7 +111,7 @@ def build_package(candidate, details_by_id=None, relations=None, catalogue_origi
         [canonical_edition["tracks"]] + [edition["tracks"] for edition in full_additional],
         catalogue_originals,
     )
-    if candidate["confirmed_category"] == "mixtape":
+    if candidate["confirmed_category"] in ("mixtape", "bootleg", "compilation"):  # remixes of other artists' songs
         linked = mark_external_remixes(linked)
     elif candidate["confirmed_category"] in ("single", "group_single"):
         linked = mark_unlinked_as_songs(linked)

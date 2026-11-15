@@ -19,6 +19,9 @@ HEADERS = {
 }
 
 
+RETRY_WAITS = (4, 10, 20)  # seconds before another try when MusicBrainz is busy (503) or rate limits (429)
+
+
 def api_request(url):
     request = urllib.request.Request(
         url,
@@ -26,8 +29,15 @@ def api_request(url):
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            return json.loads(response.read().decode("utf-8"))
+        for wait in RETRY_WAITS + (None,):
+            try:
+                with urllib.request.urlopen(request, timeout=20) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as error:
+                if error.code not in (429, 503) or wait is None:
+                    raise
+                print(f"MusicBrainz HTTP error: {error.code}; trying again in {wait} s")
+                time.sleep(wait)
 
     except urllib.error.HTTPError as error:
         print(f"MusicBrainz HTTP error: {error.code}")
