@@ -580,6 +580,16 @@ def release(connection, release_id):
     for track in result["tracks"]:
         track["play"] = play.get(track["version_id"])
     result["listen"] = listen_links(connection, [release_id])
+    if not any(l["service"] in ("spotify", "apple_music") for l in result["listen"]) and has_table(connection, "version_links"):
+        # a single the stores have no page for: its song's track links (from the album)
+        seen = {}
+        for service, url in connection.execute("""
+                SELECT l.service, l.url FROM release_tracks rt JOIN version_links l ON l.version_id = rt.version_id
+                WHERE rt.release_id = ? ORDER BY rt.disc_number, rt.track_number, l.id""", (release_id,)):
+            seen.setdefault(service, url)
+        if len(result["tracks"]) <= 3:
+            have = {l["service"] for l in result["listen"]}
+            result["listen"] += [{"service": s, "url": u} for s, u in seen.items() if s not in have]
     result["edition"] = edition_labels().get(result.get("musicbrainz_release_id"))
     result["artist_credit"] = release_credits(connection).get(release_id)
     group = result.get("musicbrainz_release_group_id")

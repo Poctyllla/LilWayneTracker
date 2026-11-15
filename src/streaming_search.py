@@ -39,6 +39,9 @@ CACHE_PATH = PROJECT_ROOT / "exports" / "streaming_catalog.json"
 ARTISTS = ("Lil Wayne", "Hot Boys", "Young Money", "Rich Gang", "Birdman", "Birdman & Lil Wayne", "T-Wayne",
            "2 Chainz", "Big Tymers", "Juvenile", "B.G.")
 MIN_OVERLAP = 0.6
+# A shorter store edition of the same title (No Ceilings: a 12-track reissue of the
+# 21-track mixtape): at least half of the store album's tracks and at least 5 of them.
+REISSUE_SHARE, REISSUE_MIN = 0.5, 5
 EDITION_NOISE = re.compile(r"\s*[(\[][^)\]]*(?:edition|deluxe|version|remaster|explicit|clean|expanded|"
                            r"anniversary|bonus|single)[^)\]]*[)\]]|\s+-\s+(?:single|ep)$", re.IGNORECASE)
 
@@ -205,7 +208,8 @@ def best_album(release_title, our_tracks, albums):
         pairs = spotify_source.match_tracks(our_tracks, album["tracks"])
         if len(pairs) > len(best_pairs):
             best, best_pairs = album, pairs
-    if best is None or len(best_pairs) < MIN_OVERLAP * len(our_tracks):
+    reissue = best is not None and len(best_pairs) >= REISSUE_MIN and len(best_pairs) >= REISSUE_SHARE * len(best["tracks"])
+    if best is None or (len(best_pairs) < MIN_OVERLAP * len(our_tracks) and not reissue):
         return None, []
     return best, best_pairs + position_pairs(our_tracks, best["tracks"], best_pairs)
 
