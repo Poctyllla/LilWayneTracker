@@ -2,8 +2,8 @@
   <!-- Lil Wayne Tracker logo: a W drawn like a tracker line, with a small drop. Original artwork. -->
   <defs>
     <linearGradient id="lwt-bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#b48cf0"/>
-      <stop offset="1" stop-color="#6c3fc4"/>
+      <stop offset="0" stop-color="#f0574a"/>
+      <stop offset="1" stop-color="#b3141c"/>
     </linearGradient>
   </defs>
   <rect width="64" height="64" rx="16" fill="url(#lwt-bg)"/>

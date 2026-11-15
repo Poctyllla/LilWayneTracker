@@ -654,6 +654,7 @@ async function init() {
   const [summary, songs, releases, people] = await Promise.all([
     getJSON("/api/v1/summary"), getJSON("/api/v1/songs"), getJSON("/api/v1/releases"), getJSON("/api/v1/artists")]);
   state.songs = songs;
+  state.summary = summary;
   state.eras = summary.eras;
   state.eraById = new Map(summary.eras.map((e) => [e.id, e]));
   state.releases = releases;
@@ -1308,6 +1309,76 @@ function exportCsv() {
 }
 $("export-csv").addEventListener("click", exportCsv);
 
+/* ---------- home: the start page ---------- */
+function homeSongPick() {
+  const pool = state.songs.filter((s) => !s.guest && s.status === "released" && playable(s.play));
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+function homeSongCard(song) {
+  if (!song) return `<p class="muted">No playable song.</p>`;
+  const era = eraOf(song);
+  return `<div class="home-song"><a href="#/song/${song.id}">${songCover(song, "home-cover")}</a>
+    <div><a class="title" href="#/song/${song.id}">${esc(song.title)}</a>
+      <div class="muted">${esc([songArtist(song), song.album ? song.album.title : "", era ? eraName(era) : ""].filter(Boolean).join(" · "))}</div>
+      <div class="home-song-actions">${playButton(song.play, `data-play-song="${song.id}"`)}
+        <button type="button" class="act ghost" id="home-reroll" title="Another song">🎲 Another</button></div></div></div>`;
+}
+async function renderHome() {
+  const s = state.summary;
+  if (!s) return;
+  const st = s.status || {}, c = s.counts || {};
+  const tile = (n, label, href, cls = "") => `<a class="home-stat ${cls}" href="${href}"><strong>${Number(n || 0).toLocaleString("en-US")}</strong><span>${esc(label)}</span></a>`;
+  const official = (state.releases || []).filter((r) => r.discography === "official" && /^\d{4}-\d{2}-\d{2}$/.test(r.release_date || ""))
+    .sort((a, b) => b.release_date.localeCompare(a.release_date));
+  const latest = official[0];
+  const links = [["songs", "Songs"], ["releases", "Releases"], ["eras", "Eras"], ["timeline", "Timeline"], ["videos", "Videos"],
+                 ["people", "People"], ["stats", "Statistics"], ["completeness", "Completeness"]];
+  $("home").innerHTML = `
+    <div class="home-hero">
+      <svg class="home-logo" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="home-red" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#f0574a"/><stop offset="1" stop-color="#b3141c"/></linearGradient></defs>
+        <rect width="64" height="64" rx="16" fill="url(#home-red)"/>
+        <polyline points="13,20 22,45 32,27 42,45 51,20" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>         <circle cx="13" cy="20" r="3.6" fill="#fff"/><circle cx="51" cy="20" r="3.6" fill="#fff"/>         <path d="M32 7 C32 7 26.5 13.5 26.5 17 a5.5 5.5 0 0 0 11 0 C37.5 13.5 32 7 32 7 Z" fill="#fff"/></svg>
+      <div><h2>Lil Wayne Tracker</h2>
+        <p>Every song, version, leak and release of Lil Wayne, with the sources behind it.</p>
+        <button type="button" class="home-search" id="home-search">Search songs, releases, people … <kbd>/</kbd></button></div>
+    </div>
+    <div class="home-stats">
+      ${tile(c.songs, "songs", "#/songs")}${tile(st.released, "released", "#/songs", "released")}
+      ${tile(st.leaked, "leaked", "#/songs", "leaked")}${tile(st.unreleased, "unreleased", "#/songs", "unreleased")}
+      ${tile(c.releases, "releases", "#/releases")}${tile(c.guest_songs, "guest appearances", "#/songs")}${tile(c.versions, "versions", "#/songs")}
+    </div>
+    <div class="home-grid">
+      <section class="home-card"><h3>On this day</h3><div id="home-today"><p class="muted">Loading…</p></div></section>
+      <section class="home-card"><h3>Song of the moment</h3><div id="home-song">${homeSongCard(homeSongPick())}</div></section>
+      <section class="home-card"><h3>Latest release</h3>${latest ? `<a class="home-release" href="#/release/${latest.id}">${releaseCover(latest, "home-cover")}
+        <span><span class="title">${esc(latest.title)}</span><span class="muted">${esc((RELEASE_TYPES[latest.release_type] || latest.release_type).replace(/s$/, ""))} · ${esc(fmtDate(latest.release_date))}</span></span></a>` : ""}</section>
+      <section class="home-card"><h3>Video</h3><div id="home-video"><p class="muted">Loading…</p></div></section>
+    </div>
+    <h3 class="home-h">Eras</h3>
+    <div class="home-eras">${state.eras.map((e) => `<a class="home-era" href="#/era/${e.id}">${coverImg(e, "home-era-cover")}<span>${esc(eraName(e))}</span></a>`).join("")}</div>
+    <h3 class="home-h">Explore</h3>
+    <div class="home-links">${links.map(([key, label]) => `<a class="home-link" href="#/${key}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${NAV_ICONS[key] || ""}"/></svg>${esc(label)}</a>`).join("")}</div>`;
+  $("home-search").addEventListener("click", (event) => { event.stopPropagation(); setGlobalSearch(true); });
+  // on this day
+  const now = new Date(), monthDay = `${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  getJSON(`/api/v1/on-this-day/${monthDay}`).then((items) => {
+    $("home-today").innerHTML = items.length ? items.slice(0, 5).map((r) => `<a class="home-row" href="#/release/${r.id}">${releaseCover(r, "tiny")}
+      <span><span class="title">${esc(r.title)}</span><span class="muted">${esc(r.release_date.slice(0, 4))} · ${now.getFullYear() - Number(r.release_date.slice(0, 4))} years ago${r.discography === "official" ? "" : " · bootleg"}</span></span></a>`).join("")
+      : `<p class="muted">Nothing came out on ${esc(now.toLocaleDateString("en-US", { month: "long", day: "numeric" }))} in earlier years.</p>`;
+  }).catch(() => { $("home-today").innerHTML = `<p class="muted">—</p>`; });
+  // a video: an official performance or music video
+  (state.videos ? Promise.resolve(state.videos) : getJSON("/api/v1/videos")).then((videos) => {
+    state.videos = state.videos || videos;
+    const pool = videos.filter((v) => v.official && ["performance", "music_video"].includes(v.kind));
+    const video = pool[Math.floor(Math.random() * pool.length)];
+    $("home-video").innerHTML = video ? videoCard(video) : `<p class="muted">No videos yet.</p>`;
+  }).catch(() => { $("home-video").innerHTML = `<p class="muted">—</p>`; });
+}
+document.addEventListener("click", (event) => {
+  if (event.target.closest("#home-reroll")) $("home-song").innerHTML = homeSongCard(homeSongPick());
+});
+
 /* ---------- videos: YouTube (official embeds, privacy-enhanced mode) ---------- */
 const VIDEO_KINDS = { music_video: "Music videos", performance: "Performances", freestyle: "Freestyles", interview: "Interviews" };
 function videoThumb(video) {
@@ -1492,7 +1563,7 @@ document.addEventListener("keydown", (event) => {
 
 /* ---------- routing (#/songs, #/song/12, #/release/8, #/artist/45 ...) ---------- */
 
-const SECTION_NAMES = { about: "About Lil Wayne", songs: "Songs", eras: "Eras", timeline: "Timeline", releases: "Releases",
+const SECTION_NAMES = { home: "Home", about: "About Lil Wayne", songs: "Songs", eras: "Eras", timeline: "Timeline", releases: "Releases",
                         people: "People", videos: "Videos", stats: "Statistics", completeness: "Completeness" };
 
 function setDrawer(open) {
@@ -1510,12 +1581,14 @@ function showTab(name) {
   if (name === "stats" && !state.statsLoaded) renderStats().catch((e) => { $("stats").textContent = e.message; });
   if (name === "completeness") renderCompleteness().catch((e) => { $("completeness").textContent = e.message; });
   if (name === "videos") renderVideos().catch((e) => { $("video-grid").textContent = e.message; });
+  if (name === "home") renderHome().catch((e) => { $("home").textContent = e.message; });
   if (name === "about" && !state.aboutLoaded) renderAbout().catch((e) => { $("about").textContent = e.message; });
   if (name === "timeline" && !state.timeline) renderTimeline().catch((e) => { $("timeline").textContent = e.message; });
 }
 
 async function route() {
-  const [, kind, id] = (location.hash.match(/^#\/(\w+)(?:\/(\d+))?/) || []);
+  let [, kind, id] = (location.hash.match(/^#\/(\w+)(?:\/(\d+))?/) || []);
+  if (!kind) kind = "home";  // the start page
   if (kind === "review") { location.hash = "#/songs"; return; }  // the "Needs review" page was removed (owner, Nov 15, 2026)
   if (kind in SECTION_NAMES) showTab(kind);
   if (kind === "eras") { $("era-grid").hidden = false; $("era-view-bar").hidden = false; $("era-detail").hidden = true; }
@@ -1975,6 +2048,7 @@ document.addEventListener("keydown", (event) => {  // before the other Esc handl
 
 /* ---------- icons in the menu and the settings sections ---------- */
 const NAV_ICONS = {
+  home: "M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z",
   songs: "M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z",
   eras: "M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6a7 7 0 1 1 2.05 4.95l-1.42 1.42A9 9 0 1 0 13 3zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z",
   timeline: "M3 5h2v14H3zm4 2h14v2H7zm0 4h10v2H7zm0 4h14v2H7z",

@@ -13,11 +13,12 @@
     <button class="icon-button" id="menu-open" title="Menu" aria-label="Open menu" aria-controls="drawer" aria-expanded="false">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
     </button>
-    <a class="brand" href="#/songs"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
-        <rect width="64" height="64" rx="16" class="logo-bg"/>
+    <a class="brand" href="#/home"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
+        <defs><linearGradient id="logo-red" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f0574a"/><stop offset="1" stop-color="#b3141c"/></linearGradient></defs>
+        <rect width="64" height="64" rx="16" fill="url(#logo-red)"/>
         <polyline points="13,20 22,45 32,27 42,45 51,20" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
         <circle cx="13" cy="20" r="3.6" fill="#fff"/><circle cx="51" cy="20" r="3.6" fill="#fff"/>
-        <path d="M32 7 C32 7 26.5 13.5 26.5 17 a5.5 5.5 0 0 0 11 0 C37.5 13.5 32 7 32 7 Z" fill="#fff"/></svg><h1>Lil Wayne Tracker</h1><span class="section" id="section-name">Songs</span></a>
+        <path d="M32 7 C32 7 26.5 13.5 26.5 17 a5.5 5.5 0 0 0 11 0 C37.5 13.5 32 7 32 7 Z" fill="#fff"/></svg><h1 class="visually-hidden">Lil Wayne Tracker</h1><span class="section" id="section-name">Songs</span></a>
   </div>
   <div class="top-actions">
     <button class="icon-button" id="global-search-open" title="Search everything (/)" aria-label="Search everything" aria-controls="global-search" aria-expanded="false">
@@ -124,6 +125,7 @@
 <nav class="drawer" id="drawer" aria-label="Sections" hidden>
   <div class="drawer-head"><strong>Lil Wayne Tracker</strong>
     <button class="icon-button" id="menu-close" aria-label="Close menu">×</button></div>
+  <a class="tab" data-tab="home" href="#/home">Home</a>
   <a class="tab" data-tab="songs" href="#/songs">Songs</a>
   <a class="tab" data-tab="eras" href="#/eras">Eras</a>
   <a class="tab" data-tab="timeline" href="#/timeline">Timeline</a>
@@ -136,7 +138,9 @@
 </nav>
 
 <main>
-  <section id="songs-view">
+  <section id="home-view" hidden><div id="home"></div></section>
+
+  <section id="songs-view" hidden>
     <div class="filters">
       <input id="search" type="search" placeholder="Search: title, artist, producer, alternate title…" autocomplete="off">
       <details class="menu" id="filter-menu">
