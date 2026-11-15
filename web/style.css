@@ -29,7 +29,12 @@ body { margin: 0; background: var(--bg); color: var(--text);
 .muted { color: var(--muted); }
 .top { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line);
        display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; }
-.brand { display: flex; align-items: baseline; gap: 10px; color: inherit; text-decoration: none; min-width: 0; }
+.brand { display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; min-width: 0; }
+.brand .logo { width: 34px; height: 34px; flex: none; border-radius: 9px; box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 35%, transparent); }
+/* the logo takes the accent colour of the settings (and of the playing cover) */
+.brand .logo .logo-bg { fill: var(--accent); }
+.brand:hover .logo { transform: rotate(-4deg); transition: transform .2s; }
+@media (max-width: 520px) { .brand .logo { width: 28px; height: 28px; } }
 .brand h1 { margin: 0; font-size: 21px; letter-spacing: .2px; white-space: nowrap; }
 .brand .section { color: var(--muted); font-size: 14px; white-space: nowrap; }
 .top-actions { display: flex; gap: 6px; }
