@@ -11,6 +11,7 @@ and, if it has an id, how to list its ids for the static copy.
     context: {"mode": "local" | "static", "profile": fn() -> dict | None}
 """
 
+import os
 import re
 
 import audio_providers
@@ -58,6 +59,8 @@ def overview(connection, context):
     return {
         "name": "Lil Wayne Tracker API", "version": API_VERSION, "mode": "local" if local else "static",
         "features": {"stream": local, "lyrics": local},
+        # the Spotify app's public Client ID for signing in (OAuth with PKCE, no secret) -- local tracker only
+        "spotify_client_id": os.environ.get("SPOTIFY_CLIENT_ID") if local else None,
         "counts": tracker_data.summary(connection)["counts"],
         "endpoints": [{"name": r.name, "path": f"/api/v1/{r.path}", "local_only": r.local_only}
                       for r in ROUTES if local or not r.local_only],

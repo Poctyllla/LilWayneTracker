@@ -414,12 +414,13 @@ body.player-open { overflow: hidden; }
 .pf-side .pf-queue, .pf-lyrics { overflow-y: auto; flex: 1; min-height: 0; }
 .pf-queue li .remove { margin-left: auto; flex: 0 0 auto; }
 .pf-queue li .now-mark { margin-left: auto; padding: 0 10px; }
-.pf-lyrics { text-align: left; padding: 4px 4px 40px; scroll-behavior: smooth; }
-.pf-lyrics .lyric { margin: 0; padding: 5px 6px; font-size: 20px; font-weight: 700; line-height: 1.35; color: rgba(255,255,255,.42);
+.pf-lyrics { text-align: var(--lyr-align, left); padding: 4px 4px 40px; scroll-behavior: smooth; }
+.pf-lyrics .lyric { margin: 0; padding: 5px 6px; font-size: var(--lyr-size, 20px); font-weight: var(--lyr-weight, 700); line-height: 1.35;
+                   font-family: var(--lyr-font, inherit); color: rgba(255,255,255,var(--lyr-dim, .42));
                     border-radius: 8px; cursor: pointer; transition: color .2s; }
 .pf-lyrics .lyric:hover { background: rgba(255,255,255,.06); }
 .pf-lyrics .lyric.gap { font-size: 14px; }
-.pf-lyrics .lyric.now { color: #fff; }
+.pf-lyrics .lyric.now { color: var(--lyr-now, #fff); }
 .lyrics-plain { white-space: pre-wrap; font-size: 16px; line-height: 1.6; }
 .lyrics-credit { font-size: 12px; color: #c9c5bc; margin-top: 18px; }
 @media (max-width: 860px) {
@@ -850,3 +851,13 @@ body.has-player .modal-backdrop { bottom: 76px; }
 .net-node:hover circle { fill-opacity: 1; stroke: var(--text); }
 .net-center { fill: var(--surface-2); stroke: var(--accent); stroke-width: 2; }
 .net-label { font-size: 12px; fill: var(--text); paint-order: stroke; stroke: var(--bg, #111); stroke-width: 3px; }
+
+.spotify-account-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.spotify-account-row .act { margin: 0; }
+
+/* Settings -> Lyrics */
+.lyr-color-row { display: flex; align-items: center; gap: 8px; }
+.lyr-color-row input[type="color"] { width: 42px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: none; }
+.lyr-preview { margin-top: 12px; padding: 14px 10px; border-radius: 12px; background: linear-gradient(135deg, #2b2440, #121214);
+               max-height: none; overflow: visible; }
+.lyr-preview .lyric { cursor: default; }

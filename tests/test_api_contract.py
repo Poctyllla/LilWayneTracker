@@ -141,6 +141,7 @@ class ApiContractTests(unittest.TestCase):
             mock.patch.object(tracker_data, "ARTIST_IMAGES_PATH", folder / "artist_images.json"),  # none: no local data
             mock.patch.object(tracker_data, "SONG_IMAGES_PATH", folder / "song_images.json"),
             mock.patch.object(genius_details, "load_cache", return_value={}),
+            mock.patch.dict(os.environ, {"SPOTIFY_CLIENT_ID": "test-client-id"}),
             # LRCLIB answer without the network (urllib.request itself is shared with this test's requests)
             mock.patch.object(lyrics_source, "lookup", lambda connection, version_id, _real=lyrics_source.lookup:
                               _real(connection, version_id, fake_lrclib)),
@@ -239,6 +240,8 @@ class ApiContractTests(unittest.TestCase):
         finally:
             connection.close()
         self.assertEqual(static["features"], {"stream": False, "lyrics": False})
+        self.assertIsNone(static["spotify_client_id"])  # the public copy never names the Spotify app
+        self.assertEqual(overview["spotify_client_id"], "test-client-id")
         self.assertFalse(any(e["local_only"] for e in static["endpoints"]))
 
     def test_static_file_names(self):

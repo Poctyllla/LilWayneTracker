@@ -1444,7 +1444,28 @@ function loadSettings() {
   try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch (e) { return {}; }
 }
 const ACCENTS = ["purple", "gold", "red", "blue", "green", "cover"];
+// Lyrics style (Settings -> Lyrics): CSS variables used by .pf-lyrics.
+const LYRIC_FONTS = { serif: 'Georgia, "Times New Roman", serif', rounded: '"Nunito", "Segoe UI Rounded", "Arial Rounded MT Bold", system-ui, sans-serif',
+                      mono: 'ui-monospace, "Cascadia Mono", Consolas, monospace', condensed: '"Arial Narrow", "Roboto Condensed", sans-serif-condensed, sans-serif' };
+function applyLyricStyle(settings) {
+  const root = document.documentElement.style;
+  root.setProperty("--lyr-size", `${Number(settings.lyrSize) || 20}px`);
+  root.setProperty("--lyr-font", LYRIC_FONTS[settings.lyrFont] || "inherit");
+  root.setProperty("--lyr-weight", settings.lyrWeight || "700");
+  root.setProperty("--lyr-now", settings.lyrColor === "accent" ? "var(--accent)"
+    : settings.lyrColor === "custom" && /^#[0-9a-f]{6}$/i.test(settings.lyrCustom || "") ? settings.lyrCustom : "#fff");
+  root.setProperty("--lyr-dim", settings.lyrDim || "0.42");
+  root.setProperty("--lyr-align", settings.lyrAlign === "center" ? "center" : "left");
+}
+const LYRIC_FIELDS = { lyrSize: "set-lyr-size", lyrFont: "set-lyr-font", lyrWeight: "set-lyr-weight", lyrColor: "set-lyr-color",
+                       lyrCustom: "set-lyr-custom", lyrDim: "set-lyr-dim", lyrAlign: "set-lyr-align" };
+const LYRIC_DEFAULTS = { lyrSize: "20", lyrFont: "", lyrWeight: "700", lyrColor: "white", lyrCustom: "#ffd166", lyrDim: "0.42", lyrAlign: "left" };
+function lyricSettingsFromForm() {
+  return Object.fromEntries(Object.entries(LYRIC_FIELDS).map(([key, id]) => [key, $(id).value]));
+}
+
 function applySettings(settings) {
+  applyLyricStyle(settings);
   if (settings.theme) document.documentElement.dataset.theme = settings.theme;
   else delete document.documentElement.dataset.theme;
   document.documentElement.dataset.accent = ACCENTS.includes(settings.accent) ? settings.accent : "purple";
@@ -1463,6 +1484,8 @@ $("settings").addEventListener("click", () => {
   $("set-dates").value = s.dates || "iso";
   $("set-player").value = s.player || "spotify";
   $("set-accent").value = ACCENTS.includes(s.accent) ? s.accent : "purple";
+  for (const [key, id] of Object.entries(LYRIC_FIELDS)) $(id).value = s[key] || LYRIC_DEFAULTS[key];
+  $("set-lyr-custom").hidden = $("set-lyr-color").value !== "custom";
   refreshChips($("settings-dialog"));
   showPane("appearance");
   $("settings-dialog").showModal();
@@ -1476,12 +1499,19 @@ document.querySelector(".settings-nav").addEventListener("click", (event) => {
   if (button) showPane(button.dataset.pane);
 });
 // Theme and colours change at once (a preview); everything is saved on "Done".
+// The lyric style changes at once too (the preview in the pane and the open player).
+for (const id of Object.values(LYRIC_FIELDS)) {
+  $(id).addEventListener("input", () => {
+    $("set-lyr-custom").hidden = $("set-lyr-color").value !== "custom";
+    applyLyricStyle(lyricSettingsFromForm());
+  });
+}
 for (const id of ["set-theme", "set-accent"]) {
   $(id).addEventListener("change", () => applySettings({ ...loadSettings(), theme: $("set-theme").value, accent: $("set-accent").value }));
 }
 $("settings-dialog").addEventListener("close", () => {
   const s = { theme: $("set-theme").value, view: $("set-view").value, kind: $("set-kind").value, dates: $("set-dates").value,
-              player: $("set-player").value, accent: $("set-accent").value };
+              player: $("set-player").value, accent: $("set-accent").value, ...lyricSettingsFromForm() };
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch (e) { /* storage unavailable */ }
   applySettings(s);
   setView(s.view);
@@ -1758,6 +1788,7 @@ const NAV_ICONS = {
   about: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-6h2zm0-8h-2V7h2z",
   appearance: "M12 3a9 9 0 0 0 0 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4.42-4.03-8-9-8zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z",
   player: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-2 14.5v-9l6 4.5-6 4.5z",
+  lyrics: "M4 5h16v2H4zm0 4h10v2H4zm0 4h16v2H4zm0 4h10v2H4z",
 };
 for (const el of document.querySelectorAll(".drawer .tab[data-tab], .settings-nav [data-pane]")) {
   const path = NAV_ICONS[el.dataset.tab || el.dataset.pane];
