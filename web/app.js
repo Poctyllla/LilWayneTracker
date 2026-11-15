@@ -394,6 +394,7 @@ async function openSong(id) {
     ${(song.videos || []).length ? `<h3>Videos</h3><div class="grid video-grid small">${song.videos.map(videoCard).join("")}</div>` : ""}
     ${songHistory(song)}
     <h3>Credits</h3>${credits ? `<dl class="credits">${credits}</dl>` : `<p class="muted">No credits yet.</p>`}
+    ${studioLine(song)}
     ${songConnections(song)}
     <h3>Sources</h3>${serviceLinks(urls) || `<p class="muted">No links.</p>`}${provenance(song)}`;
   showPanel();
@@ -1232,6 +1233,28 @@ function statTiles() {
     <p class="muted stat-hint">Click a figure to show only that status in every chart, a legend entry to show or hide it in one chart.</p>`;
 }
 
+// Where a song was recorded, mixed and mastered (Genius, studios.py).
+const STUDIO_KINDS = { recorded: "Recorded at", mixed: "Mixed at", mastered: "Mastered at" };
+function studioLine(song) {
+  const rows = song.studios || [];
+  if (!rows.length) return "";
+  const byKind = {};
+  for (const r of rows) (byKind[r.kind] ||= []).push(r.studio);
+  return `<dl class="credits studios">${Object.keys(STUDIO_KINDS).filter((k) => byKind[k]).map((k) =>
+    `<dt>${STUDIO_KINDS[k]}</dt><dd>${esc(byKind[k].join(", "))}</dd>`).join("")}</dl><p class="src">Studios from Genius</p>`;
+}
+async function renderStudios() {
+  const rows = state.studios = state.studios || await getJSON("/api/v1/studios");
+  if (!rows.length || $("stats-studios")) return;
+  const block = (kind) => {
+    const list = rows.filter((r) => r.kind === kind).slice(0, 12);
+    return list.length ? `<section class="home-card"><h3>${STUDIO_KINDS[kind]}</h3>${list.map((r) =>
+      `<div class="studio-row"><span>${esc(r.studio)}</span><strong>${r.songs}</strong></div>`).join("")}</section>` : "";
+  };
+  $("stats").insertAdjacentHTML("beforeend", `<div id="stats-studios"><h3 class="home-h">Studios</h3>
+    <div class="home-grid">${["recorded", "mixed", "mastered"].map(block).join("")}</div><p class="src">Song counts from Genius credits</p></div>`);
+}
+
 async function renderStats() {
   const data = await getJSON("/api/v1/stats");
   const images = new Map(state.people.map((p) => [p.id, p.image]));
@@ -1248,6 +1271,7 @@ async function renderStats() {
       rows: Object.entries(data.versions).map(([type, n]) => ({ label: VERSION_TYPES[type] || type, value: n })), unit: "versions" },
   ];
   $("stats").innerHTML = `${statTiles()}<div class="stats-grid">${stats.charts.map(renderChart).join("")}</div>`;
+  renderStudios().catch(() => {});
   state.statsLoaded = true;
 }
 
@@ -1274,6 +1298,7 @@ $("stats").addEventListener("click", (event) => {
         ? chart.series.filter((s) => s.key !== stats.solo).map((s) => s.key) : []);
     }
     $("stats").innerHTML = `${statTiles()}<div class="stats-grid">${stats.charts.map(renderChart).join("")}</div>`;
+  renderStudios().catch(() => {});
   }
 });
 // Line charts: the crosshair snaps to the nearest year; the tooltip lists every shown series.

@@ -447,6 +447,9 @@ def song(connection, recording_id):
     result["connections"] = song_connections(connection, result)
     result["videos"] = videos(connection, recording_id)
     result["charts"], result["certifications"] = chart_data(connection, "recording_id", [recording_id])
+    result["studios"] = [dict(row) for row in connection.execute(
+        "SELECT kind, studio FROM song_studios WHERE recording_id = ? ORDER BY CASE kind WHEN 'recorded' THEN 0 "
+        "WHEN 'mixed' THEN 1 ELSE 2 END, studio", (recording_id,))] if has_table(connection, "song_studios") else []
     result["cover_file"] = song_covers_for(connection, recording_id)
     album = song_albums(connection).get(recording_id) if head["appearance"] != "guest" else None
     result["credit"] = release_credits(connection).get(album["id"]) if album else None
@@ -700,6 +703,15 @@ def videos(connection, recording_id=None):
         video["song_date"] = min((s["song_date"] for s in video["songs"] if s["song_date"]), default=None)
         result.append(video)
     return result
+
+
+def studios(connection):
+    """The studios of the catalogue (studios.py): per kind, the studios with the most songs."""
+    if not has_table(connection, "song_studios"):
+        return []
+    return [dict(row) for row in connection.execute("""
+        SELECT kind, studio, count(*) AS songs FROM song_studios GROUP BY kind, studio
+        ORDER BY CASE kind WHEN 'recorded' THEN 0 WHEN 'mixed' THEN 1 ELSE 2 END, songs DESC, studio""")]
 
 
 CHART_ORDER = ["US", "US R&B/HH", "US Rap", "CAN", "UK", "AUS", "NZ", "IRL", "FRA", "SWI"]

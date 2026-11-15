@@ -208,6 +208,9 @@ def merge(connection, keep_id, drop_id):
     if "video_recordings" in tables:
         connection.execute("UPDATE OR IGNORE video_recordings SET recording_id = ? WHERE recording_id = ?", (keep_id, drop_id))
         connection.execute("DELETE FROM video_recordings WHERE recording_id = ?", (drop_id,))
+    if "song_studios" in tables:
+        connection.execute("UPDATE OR IGNORE song_studios SET recording_id = ? WHERE recording_id = ?", (keep_id, drop_id))
+        connection.execute("DELETE FROM song_studios WHERE recording_id = ?", (drop_id,))
     for table in ("chart_entries", "certifications"):
         if table in tables:
             connection.execute(f"UPDATE {table} SET recording_id = ? WHERE recording_id = ?", (keep_id, drop_id))

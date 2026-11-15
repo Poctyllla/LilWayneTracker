@@ -58,6 +58,7 @@ def song_details(song):
         "writers": artist_names(song.get("writer_artists")),
         "custom_performances": [{"label": p.get("label"), "artists": artist_names(p.get("artists"))}
                                 for p in song.get("custom_performances") or []],
+        "recording_location": song.get("recording_location"),
         "media": [{"provider": m.get("provider"), "type": m.get("type"), "url": m.get("url")}
                   for m in song.get("media") or [] if m.get("url")],
         "relationships": [{"type": r.get("relationship_type") or r.get("type"),
@@ -126,6 +127,8 @@ def main(argv=None):
     parser.add_argument("--guest-matches")
     parser.add_argument("--guest-survey")
     parser.add_argument("--albums", action="store_true", help="download the albums of the cached songs")
+    parser.add_argument("--locations", action="store_true",
+                        help="download again the cached songs stored before the recording location was kept")
     parser.add_argument("--media", action="store_true",
                         help="download again the cached songs stored before media links (YouTube ...) were kept")
     parser.add_argument("--relationships", action="store_true",
@@ -142,7 +145,8 @@ def main(argv=None):
     cache = load_cache()
     todo = [song_id for song_id in ids if song_id not in cache
             or (args.relationships and "relationships" not in cache[song_id])
-            or (args.media and "media" not in cache[song_id])]
+            or (args.media and "media" not in cache[song_id])
+            or (args.locations and "recording_location" not in cache[song_id])]
     print(f"Genius songs: {len(ids)}; cached {len(ids) - len(todo)}; to download {len(todo)}")
     failed = []
     for index, song_id in enumerate(todo, start=1):

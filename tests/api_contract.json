@@ -245,6 +245,7 @@
     "version": "null"
    }
   ],
+  "studios": [],
   "title": "str",
   "versions": [
    {
@@ -512,6 +513,7 @@
    }
   ]
  },
+ "GET /api/v1/studios": [],
  "GET /api/v1/versions/<id>/sources": [
   {
    "key": "str",
