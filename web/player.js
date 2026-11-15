@@ -615,7 +615,7 @@ function itemsFor(button) {
   const { playSong, playRelease, playVersion } = button.dataset;
   if (playSong) {
     const list = (state.shown || []).filter((s) => playable(s.play));
-    const song = list.find((s) => String(s.id) === playSong) || state.songs.find((s) => String(s.id) === playSong);
+    const song = list.find((s) => String(s.key || s.id) === playSong) || state.songs.find((s) => String(s.id) === playSong);
     return list.includes(song) ? { items: list.map(songItem), index: list.indexOf(song) } : { items: [songItem(song)], index: 0 };
   }
   if (playRelease !== undefined && state.release) {

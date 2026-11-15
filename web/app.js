@@ -2,8 +2,8 @@
 
 const STATUS = { released: "Released", leaked: "Leaked", unreleased: "Unreleased" };
 const VERSION_TYPES = {
-  album: "Main", remix: "Remix", demo: "Demo", snippet: "Snippet", original: "Original",
-  alternate: "Alternate", extended: "Extended", live: "Live", acapella: "Acapella",
+  album: "Main", remix: "Remix", alternate: "Alternate", original: "Early version", extended: "Extended",
+  demo: "Demo", snippet: "Snippet", live: "Live", acapella: "Acapella",
 };
 const ROLES = {
   main_artist: "Main artist", featured_artist: "Featured", producer: "Producer", co_producer: "Co-producer",
@@ -176,7 +176,7 @@ const VIEWS = {
     const era = eraOf(song);
     return `<tr data-id="${song.id}">
       <td class="thumb">${songCover(song, "small")}</td>
-      <td><div class="title">${esc(song.title)}</div>${songMeta(song)}${playButton(song.play, `data-play-song="${song.id}"`)}</td>
+      <td><div class="title">${esc(song.title)}</div>${songMeta(song)}${playButton(song.play, `data-play-song="${song.key || song.id}"`)}</td>
       <td class="era-cell">${song.album ? `<a class="album-link" href="#/release/${song.album.id}" title="Album / project">${esc(song.album.title)}</a>`
         : `<span class="muted">No release</span>`}
         <div class="era-line">${era ? `<a href="#/era/${era.id}">${esc(eraName(era))}</a>` : "No era"}</div></td>
@@ -194,11 +194,11 @@ const VIEWS = {
           ${song.file ? `<span class="file">♪</span>` : ""}</div>
         <div class="card-album" title="Album / project">${song.album ? esc(song.album.title) : "No release"}</div>
         <div class="artist">${esc(era ? eraName(era) : "No era")}</div>
-        ${playButton(song.play, `data-play-song="${song.id}"`)}</div></a>`;
+        ${playButton(song.play, `data-play-song="${song.key || song.id}"`)}</div></a>`;
   }).join("")}</div>`,
   compact: (songs) => `<table class="rows compact">${songs.map((song) => {
     const era = eraOf(song);
-    return `<tr data-id="${song.id}"><td class="play-cell">${playButton(song.play, `data-play-song="${song.id}"`, "")}</td><td class="title">${esc(song.title)}</td>
+    return `<tr data-id="${song.id}"><td class="play-cell">${playButton(song.play, `data-play-song="${song.key || song.id}"`, "")}</td><td class="title">${esc(song.title)}</td>
       <td class="artist">${esc(songArtist(song))}</td>
       <td class="artist">${song.album ? esc(song.album.title) : ""}</td>
       <td class="artist">${esc(era ? eraName(era) : "")}</td>
@@ -234,14 +234,25 @@ function restoreFilters() {
   updateFilterCount();
 }
 
+// With a version type chosen the list shows those versions themselves ("Hustler Musik (Live In Los
+// Angeles)"): their own date, status and playable source; the link still opens the song.
+function versionEntries(songs, type) {
+  return songs.flatMap((song) => (song.variants || []).filter((v) => v.type === type).map((v) => ({
+    ...song, key: `${song.id}-${v.id}`, title: `${song.title} (${v.name || VERSION_TYPES[v.type] || v.type})`,
+    date: v.date || song.date, status: v.status || song.status, play: v.play, types: [v.type], variant: v,
+    album: v.album, file: v.file,  // the release this version is on (none: known only from sources)
+  })));
+}
+
 function renderSongs() {
   saveFilters();
-  const base = filteredSongs();
+  const vtype = $("vtype").value;
+  const base = vtype ? versionEntries(filteredSongs(), vtype) : filteredSongs();
   for (const chip of document.querySelectorAll(".chip")) {
     chip.querySelector("span").textContent = base.filter((s) => s.status === chip.dataset.status).length;
   }
   const songs = base.filter((s) => state.statuses.has(s.status)).sort(SORTS[$("sort").value] || SORTS.date);
-  $("shown").textContent = `Showing ${plural(songs.length, "song")}`;
+  $("shown").textContent = `Showing ${plural(songs.length, vtype ? `${(VERSION_TYPES[vtype] || vtype).toLowerCase().replace(/ version$/, "")} version` : "song")}`;
   state.shown = songs;
   state.limit = PAGE;
   $("song-list").innerHTML = (VIEWS[state.view] || VIEWS.list)(songs.slice(0, PAGE));
@@ -569,8 +580,12 @@ async function init() {
     + `${c.releases} releases · ${c.credits} credits · ${c.files} local files`;
   $("era").insertAdjacentHTML("beforeend", summary.eras.map((e) => `<option value="${e.id}">${esc(eraName(e))}</option>`).join("")
     + `<option value="none">No era</option>`);
-  const types = [...new Set(songs.flatMap((s) => s.types))].sort();
-  $("vtype").insertAdjacentHTML("beforeend", types.map((t) => `<option value="${esc(t)}">${esc(VERSION_TYPES[t] || t)}</option>`).join(""));
+  // one option per version type (in the order of VERSION_TYPES) with the number of versions of that type
+  const typeCounts = {};
+  for (const variant of songs.flatMap((s) => s.variants || [])) typeCounts[variant.type] = (typeCounts[variant.type] || 0) + 1;
+  const types = Object.keys(typeCounts).sort((a, b) => Object.keys(VERSION_TYPES).indexOf(a) - Object.keys(VERSION_TYPES).indexOf(b));
+  $("vtype").insertAdjacentHTML("beforeend", types.map((t) =>
+    `<option value="${esc(t)}">${esc(VERSION_TYPES[t] || t)} (${typeCounts[t]})</option>`).join(""));
   const releaseTypes = [...new Set(releases.map((r) => r.release_type))].sort((a, b) =>
     Object.keys(RELEASE_TYPES).indexOf(a) - Object.keys(RELEASE_TYPES).indexOf(b));
   $("release-type").insertAdjacentHTML("beforeend", releaseTypes.map((t) => `<option value="${esc(t)}">${esc(RELEASE_TYPES[t] || t)}</option>`).join(""));

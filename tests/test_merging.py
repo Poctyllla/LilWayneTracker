@@ -373,6 +373,8 @@ class SplitVersionTests(unittest.TestCase):
             "Fireman [Unreleased Verse]": ("Fireman", "alternate", "Unreleased Verse"),
             "Fireman (Live In Los Angeles)": ("Fireman", "live", "Live In Los Angeles"),
             "Hot Revolver (Extended)": ("Hot Revolver", "extended", "Extended"),
+            "Shine (Extended Remix)": ("Shine", "remix", "Extended Remix"),
+            "Poppin (Remix) (Original)": ("Poppin", "remix", "Remix (Original)"),
             "Lollipop (Remix)": ("Lollipop", "remix", "Remix"),
             "Pick & Roll (Unreleased Version)": ("Pick & Roll", "original", "Unreleased Version"),
         }

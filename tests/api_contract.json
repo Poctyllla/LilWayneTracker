@@ -269,6 +269,9 @@
    "types": [
     "\"str\"|null"
    ],
+   "variants": [
+    "{\"album\": \"null\", \"date\": \"str\", \"file\": \"bool\", \"id\": \"int\", \"name\": \"str\", \"play\": \"null\", \"status\": \"str\", \"type\": \"str\"}|null"
+   ],
    "versions": "int"
   }
  ],

@@ -63,7 +63,26 @@ def songs(connection):
     for recording_id, title in connection.execute("SELECT recording_id, title FROM recording_aliases"):
         aliases.setdefault(recording_id, []).append(title)
     covers = song_covers(connection)
-    play = song_play(connection)
+    playable = playables(connection)
+    play = song_play(connection, playable)
+    # the other versions (live, demo, remix ...): the Versions filter lists them one by one
+    variants = {}
+    for version_id, recording_id, version_type, name, date, status, release_id, release_title, has_file in connection.execute("""
+        WITH first_release AS (
+            SELECT rt.version_id, r.id, r.title, r.release_date,
+                   row_number() OVER (PARTITION BY rt.version_id
+                                      ORDER BY r.release_date IS NULL, r.release_date, r.id) AS n
+            FROM release_tracks rt JOIN releases r ON r.id = rt.release_id)
+        SELECT v.id, v.recording_id, v.version_type, v.version_name,
+               COALESCE(fr.release_date, v.first_known_date), va.availability, fr.id, fr.title,
+               EXISTS (SELECT 1 FROM files f WHERE f.version_id = v.id)
+        FROM versions v JOIN version_availability va ON va.version_id = v.id
+        LEFT JOIN first_release fr ON fr.version_id = v.id AND fr.n = 1
+        WHERE v.version_type != 'album' ORDER BY v.id"""):
+        variants.setdefault(recording_id, []).append({
+            "id": version_id, "type": version_type, "name": name, "date": date, "status": status,
+            "album": {"id": release_id, "title": release_title} if release_id else None, "file": bool(has_file),
+            "play": {"v": version_id, **playable[version_id]} if version_id in playable else None})
     albums = song_albums(connection)
     credits = release_credits(connection)
     producers = {}
@@ -85,6 +104,7 @@ def songs(connection):
             "guest": row["appearance"] == "guest", "era": row["era_id"], "status": row["availability"],
             "date": first_dates.get(row["id"]) or row["recording_date"],
             "versions": len(types), "types": sorted({t for t in types if t and t != "album"}),
+            "variants": variants.get(row["id"], []),
             "releases": releases.get(row["id"], 0), "file": row["id"] in files,
             "aliases": aliases.get(row["id"], []), "producers": producers.get(row["id"], []),
             "cover": covers.get(row["id"]), "play": play.get(row["id"]), "album": albums.get(row["id"]),

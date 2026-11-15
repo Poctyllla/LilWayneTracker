@@ -24,7 +24,7 @@ VERSION_TYPE_PATTERNS = (
     ("live", r"live|concert|performance"),
     ("acapella", r"a ?capp?ella"),
     ("original", r"original|og|first version|early version|old version|unreleased version"),
-    ("extended", r"extended"),
+    ("extended", r"extended(?!\s+(?:re)?mix)"),  # "Extended Remix" is a remix
     ("alternate", r"alternate|alt\.? version|unreleased verse|another version|v\d|version \d|"
                   r"\w+ version"),
     ("remix", r"(?:re)?mix|remix #?\d"),
@@ -79,5 +79,7 @@ def split_version(title):
         return rest if markers else title, None, None
     order = [name for name, _ in VERSION_TYPE_PATTERNS]
     version_type = min((kind for kind, _ in kept), key=order.index)
+    if version_type == "original" and any(kind == "remix" for kind, _ in kept):
+        version_type = "remix"  # "Remix (Original)": the original remix, not an early version of the song
     name = kept[0][1] + "".join(f" ({text})" for _, text in kept[1:])
     return rest, version_type, name
