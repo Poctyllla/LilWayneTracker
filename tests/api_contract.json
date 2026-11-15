@@ -124,6 +124,8 @@
  "GET /api/release/<id>": {
   "artist_credit": "null",
   "artist_id": "int",
+  "certifications": [],
+  "charts": [],
   "comparison": "null",
   "cover_file": "str",
   "description": "null",
@@ -184,6 +186,8 @@
   "artist": "str",
   "artist_id": "int",
   "availability": "str",
+  "certifications": [],
+  "charts": [],
   "connections": [],
   "cover_file": "str",
   "credit": "null",
@@ -410,6 +414,13 @@
   "name": "str",
   "spotify_client_id": "str",
   "version": "str"
+ },
+ "GET /api/v1/charts": {
+  "albums": [],
+  "charts": [
+   "str"
+  ],
+  "songs": []
  },
  "GET /api/v1/completeness": {
   "open": [

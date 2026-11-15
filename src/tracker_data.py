@@ -446,6 +446,7 @@ def song(connection, recording_id):
     result["former"] = former(result)
     result["connections"] = song_connections(connection, result)
     result["videos"] = videos(connection, recording_id)
+    result["charts"], result["certifications"] = chart_data(connection, "recording_id", [recording_id])
     result["cover_file"] = song_covers_for(connection, recording_id)
     album = song_albums(connection).get(recording_id) if head["appearance"] != "guest" else None
     result["credit"] = release_credits(connection).get(album["id"]) if album else None
@@ -701,6 +702,47 @@ def videos(connection, recording_id=None):
     return result
 
 
+CHART_ORDER = ["US", "US R&B/HH", "US Rap", "CAN", "UK", "AUS", "NZ", "IRL", "FRA", "SWI"]
+
+
+def chart_data(connection, column, ids):
+    """(charts [{chart, peak}], certifications [{body, level, note}]) of songs / releases (charts_source.py)."""
+    if not ids or not has_table(connection, "chart_entries"):
+        return [], []
+    marks = ",".join("?" * len(ids))
+    peaks = {}
+    for chart, peak in connection.execute(f"SELECT chart, peak FROM chart_entries WHERE {column} IN ({marks})", list(ids)):
+        peaks[chart] = min(peak, peaks.get(chart, peak))
+    order = {name: i for i, name in enumerate(CHART_ORDER)}
+    charts = [{"chart": c, "peak": p} for c, p in sorted(peaks.items(), key=lambda item: (order.get(item[0], 99), item[0]))]
+    certs = [dict(row) for row in connection.execute(
+        f"SELECT DISTINCT body, level, note FROM certifications WHERE {column} IN ({marks}) "
+        "ORDER BY body != 'RIAA', body, note IS NOT NULL", list(ids))]
+    return charts, certs
+
+
+def charts(connection):
+    """The Charts page: every charting / certified song and album."""
+    if not has_table(connection, "chart_entries"):
+        return {"charts": CHART_ORDER, "songs": [], "albums": []}
+    def collect(column, query):
+        result = []
+        for row in connection.execute(query):
+            peaks, certs = chart_data(connection, column, [row["id"]])
+            result.append({**dict(row), "peaks": {p["chart"]: p["peak"] for p in peaks}, "certifications": certs})
+        return result
+    songs = collect("recording_id", """
+        SELECT DISTINCT r.id, r.title, a.name AS artist, r.appearance = 'guest' AS guest FROM recordings r
+        JOIN artists a ON a.id = r.artist_id
+        WHERE r.id IN (SELECT recording_id FROM chart_entries UNION SELECT recording_id FROM certifications)""")
+    albums = collect("release_id", """
+        SELECT DISTINCT r.id, r.title, r.release_date, r.release_type FROM releases r
+        WHERE r.id IN (SELECT release_id FROM chart_entries UNION SELECT release_id FROM certifications)""")
+    for song in songs:
+        song["guest"] = bool(song["guest"])
+    return {"charts": CHART_ORDER, "songs": songs, "albums": albums}
+
+
 REVIEW_QUEUE_PATH = Path(__file__).resolve().parent.parent / "data" / "reviewed_candidates.json"
 
 
@@ -911,6 +953,8 @@ def release(connection, release_id):
             FROM releases r WHERE r.musicbrainz_release_group_id = ? AND r.id != ?
             ORDER BY r.release_date, r.id""", (group, release_id))]
     result["comparison"] = compare_editions(connection, [release_id] + [e["id"] for e in result["editions"]])         if result["editions"] else None
+    result["charts"], result["certifications"] = chart_data(
+        connection, "release_id", [release_id] + [e["id"] for e in result["editions"]])
     return result
 
 

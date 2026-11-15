@@ -388,6 +388,7 @@ async function openSong(id) {
     </div></div>
     <h3>Appears on</h3>${appears}
     ${others.length ? `<h3>Other versions</h3>${compareVersions(song)}${versions}` : ""}
+    ${chartBlock(song)}
     ${(song.videos || []).length ? `<h3>Videos</h3><div class="grid video-grid small">${song.videos.map(videoCard).join("")}</div>` : ""}
     ${songHistory(song)}
     <h3>Credits</h3>${credits ? `<dl class="credits">${credits}</dl>` : `<p class="muted">No credits yet.</p>`}
@@ -644,6 +645,7 @@ async function openRelease(id) {
         <span class="muted">${esc(fmtDate(e.release_date) || "no date")} · ${plural(e.tracks, "track")}${e.tracks !== release.tracks.length
           ? ` (${e.tracks > release.tracks.length ? "+" : ""}${e.tracks - release.tracks.length})` : ""}</span></span></a>`).join("")}</div>
       ${compareEditions(release)}` : ""}
+    ${chartBlock(release)}
     ${sources.length ? `<h3>Sources</h3>${serviceLinks(sources)}` : ""}`;
   showPanel();
 }
@@ -1309,6 +1311,56 @@ function exportCsv() {
 }
 $("export-csv").addEventListener("click", exportCsv);
 
+/* ---------- charts and certifications (Wikipedia, charts_source.py) ---------- */
+const CHART_NAMES = { US: "Billboard Hot 100", "US R&B/HH": "Hot R&B/Hip-Hop Songs", "US Rap": "Hot Rap Songs", CAN: "Canadian Hot 100",
+                      UK: "UK Singles Chart", AUS: "ARIA", NZ: "New Zealand", IRL: "Ireland", FRA: "France", SWI: "Switzerland" };
+function chartBlock(item) {
+  const charts = item.charts || [], certs = item.certifications || [];
+  if (!charts.length && !certs.length) return "";
+  return `<h3>Charts</h3><div class="chart-badges">${charts.map((c) =>
+    `<span class="chart-badge${c.peak === 1 ? " top1" : c.peak <= 10 ? " top10" : ""}" title="${esc(CHART_NAMES[c.chart] || c.chart)}">${esc(c.chart)} <strong>#${c.peak}</strong></span>`).join("")}</div>
+    ${certs.length ? `<div class="chart-badges">${certs.map((c) => `<span class="cert-badge cert-${esc(c.level.replace(/^\d+×/, "").toLowerCase())}">${esc(c.body)} ${esc(c.level)}${c.note ? ` <span class="muted">(${esc(c.note)})</span>` : ""}</span>`).join("")}</div>` : ""}
+    <p class="src">Peak positions and certifications from Wikipedia</p>`;
+}
+function riaaUnits(certs) {  // Diamond = 10 x Platinum
+  let units = 0;
+  for (const c of certs || []) {
+    if (c.body !== "RIAA" || c.note) continue;
+    const m = /^(\d+)×/.exec(c.level), n = m ? Number(m[1]) : 1;
+    units = Math.max(units, /Diamond/i.test(c.level) ? 10 * n : /Platinum/i.test(c.level) ? n : 0);
+  }
+  return units;
+}
+async function renderCharts() {
+  const data = state.chartData = state.chartData || await getJSON("/api/v1/charts");
+  const shown = ["US", "US R&B/HH", "US Rap", "UK", "CAN"];
+  const songs = data.songs.filter((s) => Object.keys(s.peaks).length || s.certifications.length)
+    .sort((a, b) => (a.peaks.US || 999) - (b.peaks.US || 999) || (a.peaks["US R&B/HH"] || 999) - (b.peaks["US R&B/HH"] || 999));
+  const albums = data.albums.sort((a, b) => (a.peaks.US || 999) - (b.peaks.US || 999));
+  const ones = songs.filter((s) => s.peaks.US === 1).length, top10 = songs.filter((s) => s.peaks.US <= 10).length;
+  const diamond = songs.filter((s) => (s.certifications || []).some((c) => c.body === "RIAA" && /Diamond/i.test(c.level) && !c.note)).length;
+  const albumOnes = albums.filter((a) => a.peaks.US === 1).length;
+  const riaaRow = (certs) => (certs || []).filter((c) => c.body === "RIAA" && !c.note).map((c) => c.level).join(", ");
+  const cell = (peak) => peak ? `<td class="peak${peak === 1 ? " top1" : peak <= 10 ? " top10" : ""}">${peak}</td>` : `<td class="muted">—</td>`;
+  $("charts").innerHTML = `
+    <div class="home-stats">
+      <div class="home-stat"><strong>${ones}</strong><span>US Hot 100 #1 songs</span></div>
+      <div class="home-stat"><strong>${top10}</strong><span>US top-10 songs</span></div>
+      <div class="home-stat"><strong>${songs.filter((s) => s.peaks.US).length}</strong><span>songs on the Hot 100</span></div>
+      <div class="home-stat"><strong>${diamond}</strong><span>RIAA Diamond songs</span></div>
+      <div class="home-stat"><strong>${albumOnes}</strong><span>US #1 albums</span></div>
+    </div>
+    <h3 class="home-h">Albums</h3>
+    <div class="check-scroll"><table class="check-table chart-table"><thead><tr><th>Album</th>${shown.map((c) => `<th title="${esc(CHART_NAMES[c] || c)}">${esc(c)}</th>`).join("")}<th>RIAA</th></tr></thead>
+      <tbody>${albums.map((a) => `<tr><td><a href="#/release/${a.id}">${esc(a.title)}</a> <span class="muted">${esc((a.release_date || "").slice(0, 4))}</span></td>
+        ${shown.map((c) => cell(a.peaks[c])).join("")}<td>${esc(riaaRow(a.certifications))}</td></tr>`).join("")}</tbody></table></div>
+    <h3 class="home-h">Songs</h3>
+    <div class="check-scroll"><table class="check-table chart-table"><thead><tr><th>Song</th>${shown.map((c) => `<th title="${esc(CHART_NAMES[c] || c)}">${esc(c)}</th>`).join("")}<th>RIAA</th></tr></thead>
+      <tbody>${songs.map((s) => `<tr><td><a href="#/song/${s.id}">${esc(s.title)}</a>${s.guest ? ` <span class="muted">${esc(s.artist)}</span>` : ""}</td>
+        ${shown.map((c) => cell(s.peaks[c])).join("")}<td>${esc(riaaRow(s.certifications))}</td></tr>`).join("")}</tbody></table></div>
+    <p class="src">Peak positions and certifications from the Wikipedia discography pages of Lil Wayne (singles, albums).</p>`;
+}
+
 /* ---------- home: the start page ---------- */
 function homeSongPick() {
   const pool = state.songs.filter((s) => !s.guest && s.status === "released" && playable(s.play));
@@ -1564,7 +1616,7 @@ document.addEventListener("keydown", (event) => {
 /* ---------- routing (#/songs, #/song/12, #/release/8, #/artist/45 ...) ---------- */
 
 const SECTION_NAMES = { home: "Home", about: "About Lil Wayne", songs: "Songs", eras: "Eras", timeline: "Timeline", releases: "Releases",
-                        people: "People", videos: "Videos", stats: "Statistics", completeness: "Completeness" };
+                        people: "People", videos: "Videos", charts: "Charts", stats: "Statistics", completeness: "Completeness" };
 
 function setDrawer(open) {
   $("drawer").hidden = !open;
@@ -1582,6 +1634,7 @@ function showTab(name) {
   if (name === "completeness") renderCompleteness().catch((e) => { $("completeness").textContent = e.message; });
   if (name === "videos") renderVideos().catch((e) => { $("video-grid").textContent = e.message; });
   if (name === "home") renderHome().catch((e) => { $("home").textContent = e.message; });
+  if (name === "charts") renderCharts().catch((e) => { $("charts").textContent = e.message; });
   if (name === "about" && !state.aboutLoaded) renderAbout().catch((e) => { $("about").textContent = e.message; });
   if (name === "timeline" && !state.timeline) renderTimeline().catch((e) => { $("timeline").textContent = e.message; });
 }
@@ -2057,6 +2110,7 @@ const NAV_ICONS = {
   stats: "M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z",
   completeness: "M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z",
   videos: "M21 6H3a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1zm-11 9V9l5 3z",
+  charts: "M3 13h4v8H3zm7-6h4v14h-4zm7-4h4v18h-4z",
   about: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-6h2zm0-8h-2V7h2z",
   appearance: "M12 3a9 9 0 0 0 0 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4.42-4.03-8-9-8zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z",
   player: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-2 14.5v-9l6 4.5-6 4.5z",

@@ -113,6 +113,7 @@ ROUTES = [
     Route("completeness", "completeness", lambda c, v, x: tracker_data.completeness(c)),
     Route("network", "network", lambda c, v, x: tracker_data.network(c)),
     Route("videos", "videos", lambda c, v, x: tracker_data.videos(c)),
+    Route("charts", "charts", lambda c, v, x: tracker_data.charts(c)),
     Route("timeline", "timeline", lambda c, v, x: tracker_data.timeline(c), legacy="timeline"),
     Route("on_this_day", "on-this-day/{month_day}", lambda c, v, x: tracker_data.on_this_day(c, v),
           legacy="on-this-day/{month_day}", items=month_days),
