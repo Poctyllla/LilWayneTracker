@@ -21,6 +21,7 @@ usage:
 
 import argparse
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -118,8 +119,12 @@ def load_cache(path=CACHE_PATH):
 
 
 def save_cache(cache, path=CACHE_PATH):
-    Path(path).write_text(json.dumps({str(k): v for k, v in sorted(cache.items())}, ensure_ascii=False, indent=1)
-                          + "\n", encoding="utf-8")
+    """Written to a temporary file first and swapped in, so the tracker never reads half a file."""
+    path = Path(path)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps({str(k): v for k, v in sorted(cache.items())}, ensure_ascii=False, indent=1)
+                         + "\n", encoding="utf-8")
+    os.replace(temporary, path)
 
 
 def main(argv=None):

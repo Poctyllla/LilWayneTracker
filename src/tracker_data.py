@@ -557,7 +557,10 @@ def _genius_cache(modified):
 def genius_cache():
     """exports/genius_song_details.json (genius_details.py), read again when it changes."""
     from genius_details import CACHE_PATH
-    return _genius_cache(CACHE_PATH.stat().st_mtime if CACHE_PATH.exists() else 0)
+    try:
+        return _genius_cache(CACHE_PATH.stat().st_mtime if CACHE_PATH.exists() else 0)
+    except ValueError:  # caught while another tool was writing it: no Genius extras this time
+        return {}
 
 
 @functools.lru_cache(maxsize=1)
