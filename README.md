@@ -23,15 +23,24 @@ reviewed by hand where the sources disagree.
 - Guest appearances, credits (producers, writers, featured artists, engineers…) from Genius
   and Discogs with their source, eras by solo studio album, cross-checks against Wikipedia
   and LilWayneHQ lists.
+- Chart peaks and certifications (Wikipedia discography tables), recording / mixing /
+  mastering studios and song relationships (samples, interpolations, covers) from Genius,
+  music videos, performances and freestyles from YouTube (official embeds only).
 - Every change goes through validation, a transaction and `verify_catalog.py`.
 
 **Tracker website (local, standard library only)**
-- Songs (list / grid / compact, filters, search, CSV export), releases, eras with covers and
-  summaries, timeline, people and collaborations, statistics, "on this day".
-- Song pages with all versions side by side, releases, credits by role and source links.
-- Player: queue, shuffle, repeat, volume, full-screen view with synced lyrics (local
-  experiment). Playback uses the official **Spotify** and **Apple Music** embeds; on the
-  owner's own computer it can also play files from the owner's private library.
+- Home page; songs (list / grid / compact, multi-value filters, search, CSV export),
+  releases, eras with covers and summaries, a horizontal timeline, people with a
+  collaboration network, videos, charts, statistics, a completeness page, global search.
+- Song pages with all versions side by side, a song history (first known, leaked, released,
+  other titles), releases, charts, credits by role, studios, samples and what each source
+  confirms; release pages compare editions track by track.
+- Library in the browser: favourites, playlists and an endless radio by any filter.
+- Player: queue, shuffle, repeat, volume, keyboard shortcuts, share links, full-screen view
+  with synced lyrics (local experiment, styled in the settings). Playback uses the official
+  **Spotify** (embed, or the Web Playback SDK after signing in with Premium: whole songs and
+  volume) and **Apple Music** embeds; on the owner's own computer it can also play files from
+  the owner's private library.
 - Colour styles, light / dark theme, settings stored in the browser.
 
 ## Getting started
@@ -54,7 +63,8 @@ newest are kept). Some tools need API keys in environment variables:
 |---|---|
 | `GENIUS_ACCESS_TOKEN` | Genius songs and credits |
 | `DISCOGS_TOKEN` | Discogs credits |
-| `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` | Spotify album / track links |
+| `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` | Spotify album / track links (the Client ID also signs the local tracker in to Spotify) |
+| `YOUTUBE_API_KEY` | YouTube search for performances and freestyles |
 
 MusicBrainz, the Cover Art Archive, Wikipedia / Wikidata and the iTunes Search API need no key.
 The tools respect the services' rate limits.
@@ -92,6 +102,7 @@ The tracker serves JSON under `/api/v1/` (all routes are defined once in
 | `artists`, `artists/<id>` | most credited people; one person's songs and roles |
 | `eras`, `eras/<id>` | eras; one era with its releases and songs |
 | `on-this-day/<MM-DD>` | releases on that day in earlier years |
+| `videos`, `charts`, `studios`, `network`, `completeness` | YouTube videos, chart peaks and certifications, studios, collaboration network, catalogue completeness |
 | `versions/<id>/sources` | how a version can be played: official embeds (Spotify, Apple Music) and, locally, a stream |
 | `stream/<file id>`, `lyrics/<version id>` | local server only |
 
@@ -120,8 +131,9 @@ web/     the tracker page (HTML, CSS, plain JavaScript; no build step)
 Metadata from [MusicBrainz](https://musicbrainz.org) (CC0), [Genius](https://genius.com),
 [Discogs](https://www.discogs.com), [Wikipedia](https://en.wikipedia.org) (text under
 CC BY-SA, linked where shown), the [Cover Art Archive](https://coverartarchive.org),
-LilWayneHQ (pages saved by hand) and [LRCLIB](https://lrclib.net) for the local lyrics
-experiment. Streaming links lead to the official services.
+LilWayneHQ (pages saved by hand), [Wikidata](https://www.wikidata.org), the
+[YouTube Data API](https://developers.google.com/youtube/v3) and [LRCLIB](https://lrclib.net)
+for the local lyrics experiment. Streaming links and videos lead to the official services.
 Fallback photo: "Lil Wayne in Concert" by Michael Williams, CC BY 2.0, via Wikimedia Commons.
 
 ## License
