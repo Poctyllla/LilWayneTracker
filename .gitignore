@@ -31,3 +31,7 @@ web/covers/*
 
 # Private working notes (decisions, data state); the public description is README.md.
 PROJECT_NOTES.md
+
+# Audio Service: its environment and its data (stored audio, database) stay local
+audio-service/.venv/
+audio-service/data/
