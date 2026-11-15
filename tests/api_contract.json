@@ -124,6 +124,7 @@
  "GET /api/release/<id>": {
   "artist_credit": "null",
   "artist_id": "int",
+  "comparison": "null",
   "cover_file": "str",
   "description": "null",
   "discography": "str",
@@ -183,6 +184,7 @@
   "artist": "str",
   "artist_id": "int",
   "availability": "str",
+  "connections": [],
   "cover_file": "str",
   "credit": "null",
   "credits": {
@@ -205,7 +207,21 @@
   },
   "era": "str",
   "era_source": "null",
+  "first_known_date": "null",
+  "former": {
+   "known": "str",
+   "released": "str"
+  },
+  "genius_album": "null",
   "genius_song_id": "int",
+  "history": [
+   {
+    "date": "str",
+    "kind": "str",
+    "text": "str",
+    "version": "null|str"
+   }
+  ],
   "id": "int",
   "leak_date": "null",
   "listen": [
@@ -221,7 +237,8 @@
    {
     "name": "str",
     "notes": "null",
-    "url": "str"
+    "url": "str",
+    "version": "null"
    }
   ],
   "title": "str",
@@ -237,6 +254,7 @@
     ],
     "musicbrainz_recording_id": "null",
     "play": "{\"apple\": \"str\", \"file_id\": \"int\", \"spotify\": \"str\"}|\"null\"",
+    "quality": "null",
     "tracks": [
      "{\"cover_file\": \"null|str\", \"disc_number\": \"int\", \"discography\": \"str\", \"duration_ms\": \"int\", \"edition\": \"null\", \"group_id\": \"str\", \"release\": \"str\", \"release_date\": \"str\", \"release_id\": \"int\", \"release_tracks\": \"int\", \"release_type\": \"str\", \"track_number\": \"int\", \"track_title\": \"null|str\"}|null"
     ],
@@ -272,7 +290,8 @@
    "variants": [
     "{\"album\": \"null\", \"date\": \"str\", \"file\": \"bool\", \"id\": \"int\", \"name\": \"str\", \"play\": \"null\", \"status\": \"str\", \"type\": \"str\"}|null"
    ],
-   "versions": "int"
+   "versions": "int",
+   "wanted": "bool"
   }
  ],
  "GET /api/stats": {
@@ -389,6 +408,65 @@
   "mode": "str",
   "name": "str",
   "version": "str"
+ },
+ "GET /api/v1/completeness": {
+  "open": [
+   {
+    "count": "int",
+    "key": "str",
+    "label": "str"
+   }
+  ],
+  "releases": [
+   {
+    "checks": {
+     "cover": {
+      "done": "int",
+      "total": "int"
+     },
+     "date": {
+      "done": "int",
+      "total": "int"
+     },
+     "listen": "{\"done\": \"int\", \"total\": \"int\"}|\"null\"",
+     "musicbrainz": {
+      "done": "int",
+      "total": "int"
+     }
+    },
+    "discography": "str",
+    "total": "int",
+    "type": "str"
+   }
+  ],
+  "songs": [
+   {
+    "checks": {
+     "date": {
+      "done": "int",
+      "total": "int"
+     },
+     "era": {
+      "done": "int",
+      "total": "int"
+     },
+     "listen": {
+      "done": "int",
+      "total": "int"
+     },
+     "producer": {
+      "done": "int",
+      "total": "int"
+     },
+     "source": {
+      "done": "int",
+      "total": "int"
+     }
+    },
+    "kind": "str",
+    "total": "int"
+   }
+  ]
  },
  "GET /api/v1/eras": [
   {

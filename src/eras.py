@@ -214,6 +214,7 @@ def plan_assignments(connection, eras):
         UNION ALL SELECT recording_id, first_known_date FROM versions
         UNION ALL SELECT id, recording_date FROM recordings
         UNION ALL SELECT id, leak_date FROM recordings
+        UNION ALL SELECT id, first_known_date FROM recordings
     """):
         if date_text:
             dates.setdefault(recording_id, []).append(date_text)

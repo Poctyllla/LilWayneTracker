@@ -36,7 +36,8 @@ def without_local_files(value):
     (audio_providers: no audio in the public copy)."""
     if isinstance(value, dict):
         return {k: (False if k == "file" else 0 if k == "files" and isinstance(v, int) else without_local_files(v))
-                for k, v in value.items() if not (k == "files" and not isinstance(v, int)) and k not in PRIVATE_PLAY_KEYS}
+                for k, v in value.items() if not (k == "files" and not isinstance(v, int)) and k not in PRIVATE_PLAY_KEYS
+                and k != "quality"}  # "quality" describes the owner's own files
     if isinstance(value, list):
         return [without_local_files(v) for v in value]
     return value

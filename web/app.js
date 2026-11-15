@@ -16,6 +16,7 @@ const ROLE_ORDER = ["main_artist", "featured_artist", "producer", "co_producer",
 const RELEASE_TYPES = {
   studio_album: "Studio albums", collaboration_album: "Collaboration albums", group_album: "Group albums",
   ep: "EPs", mixtape: "Mixtapes", single: "Singles", group_single: "Group singles", bootleg: "Bootlegs",
+  compilation: "Compilations",
 };
 const PAGE = 50;  // songs rendered at a time; more load while scrolling
 const byTitle = (a, b) => a.title.localeCompare(b.title);
@@ -118,7 +119,7 @@ function filteredSongs() {
     if (kind === "own" && song.guest) return false;
     if (kind === "guest" && !song.guest) return false;
     if (era && String(song.era ?? "none") !== era) return false;
-    if (vtype && !song.types.includes(vtype)) return false;
+    if (vtype === "wanted" ? !song.wanted : vtype && !song.types.includes(vtype)) return false;
     if (query) {
       const haystack = fold([song.title, song.artist, song.credit || "", ...song.aliases, ...song.producers].join(" "));
       if (!haystack.includes(query)) return false;
@@ -247,12 +248,14 @@ function versionEntries(songs, type) {
 function renderSongs() {
   saveFilters();
   const vtype = $("vtype").value;
-  const base = vtype ? versionEntries(filteredSongs(), vtype) : filteredSongs();
+  const base = vtype === "wanted" ? filteredSongs() : vtype ? versionEntries(filteredSongs(), vtype) : filteredSongs();
   for (const chip of document.querySelectorAll(".chip")) {
     chip.querySelector("span").textContent = base.filter((s) => s.status === chip.dataset.status).length;
   }
   const songs = base.filter((s) => state.statuses.has(s.status)).sort(SORTS[$("sort").value] || SORTS.date);
-  $("shown").textContent = `Showing ${plural(songs.length, vtype ? `${(VERSION_TYPES[vtype] || vtype).toLowerCase().replace(/ version$/, "")} version` : "song")}`;
+  $("shown").textContent = vtype === "wanted"
+    ? `Showing ${plural(songs.length, "wanted song")}: known from snippets only, no full version has leaked`
+    : `Showing ${plural(songs.length, vtype ? `${(VERSION_TYPES[vtype] || vtype).toLowerCase().replace(/ version$/, "")} version` : "song")}`;
   state.shown = songs;
   state.limit = PAGE;
   $("song-list").innerHTML = (VIEWS[state.view] || VIEWS.list)(songs.slice(0, PAGE));
@@ -318,13 +321,18 @@ async function openSong(id) {
       <div class="head"><strong>${esc(version.version_name || VERSION_TYPES[version.version_type] || "Version")}</strong>
         <span class="tag">${esc(VERSION_TYPES[version.version_type] || version.version_type || "")}</span>
         ${badge(version.availability)} ${version.files ? `<span class="file">♪ ${plural(version.files, "file")}</span>` : ""}
+        ${qualityTag(version.quality)}
         ${playButton(version.play, `data-play-version="${version.id}"`, "Play")}
         ${(version.links || []).map((l) => `<a class="mini-listen" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer"
           title="${esc(l.url)}" style="--svc:${serviceOf(l.url).color}">▶ ${esc(serviceOf(l.url).name)}</a>`).join("")}</div>
       ${version.first_known_date ? `<div class="track">Known since ${esc(version.first_known_date)}</div>` : ""}
       ${appearsOn(version.tracks, song.title) || `<div class="track">Not on a release</div>`}
     </div>`).join("");
+  const ga = song.genius_album;
   const appears = appearsOn(albumTracks, song.title)
+    || (ga ? `<div class="genius-album"><a href="${esc(ga.url || ga.song_url)}" target="_blank" rel="noopener noreferrer"><strong>${esc(ga.name)}</strong></a>
+        ${ga.artist ? `<span class="muted">· ${esc(ga.artist)}</span>` : ""} ${ga.release_date ? `<span class="muted">· ${esc(ga.release_date)}</span>` : ""}
+        <div class="src">Album on Genius (not catalogued as a release here)</div></div>` : "")
     || `<p class="muted">${song.versions.length ? "Not on a release (yet)." : "No versions yet: this song is known from sources only."}</p>`;
   const roles = Object.keys(song.credits).sort((a, b) => {
     const ia = ROLE_ORDER.indexOf(a), ib = ROLE_ORDER.indexOf(b);
@@ -360,7 +368,8 @@ async function openSong(id) {
       <h2>${esc(song.title)}</h2>
       <div class="muted">${song.credit ? `<span class="credit" title="Credited on ${esc(listed.album ? listed.album.title : "the release")}">${esc(song.credit)}</span>`
         : `<a href="#/artist/${song.artist_id}">${esc(song.artist)}</a>`}${song.appearance === "guest" ? " · guest appearance" : ""}
-        · ${listed.era ? `<a href="#/era/${listed.era}">${esc(eraName(song.era))}</a>` : esc(song.era ? eraName(song.era) : "no era")} ${badge(song.availability)}</div>
+        · ${listed.era ? `<a href="#/era/${listed.era}">${esc(eraName(song.era))}</a>` : esc(song.era ? eraName(song.era) : "no era")} ${badge(song.availability)}
+        ${song.former ? `<span class="tag former" title="Known ${esc(fmtDate(song.former.known))}, released ${esc(fmtDate(song.former.released))}">Leaked before release</span>` : ""}</div>
       ${song.aliases.length ? `<p class="muted">Also known as: ${esc(song.aliases.join(", "))}</p>` : ""}
       ${main ? `<div class="head-play">${playButton(main.play, `data-play-version="${main.id}"`)}</div>` : ""}
       ${song.listen.length ? `<div class="listen">${serviceLinks(song.listen.map((l) => l.url))}</div>` : ""}
@@ -368,9 +377,55 @@ async function openSong(id) {
     </div></div>
     <h3>Appears on</h3>${appears}
     ${others.length ? `<h3>Other versions</h3>${compareVersions(song)}${versions}` : ""}
+    ${songHistory(song)}
     <h3>Credits</h3>${credits ? `<dl class="credits">${credits}</dl>` : `<p class="muted">No credits yet.</p>`}
-    <h3>Sources</h3>${serviceLinks(urls) || `<p class="muted">No links.</p>`}`;
+    ${songConnections(song)}
+    <h3>Sources</h3>${serviceLinks(urls) || `<p class="muted">No links.</p>`}${provenance(song)}`;
   showPanel();
+}
+
+// The quality of the owner's best file of a version (local tracker only).
+const QUALITY = { lossless: "Lossless", high: "High quality", medium: "Medium quality", low: "Low quality" };
+function qualityTag(quality) {
+  return quality ? `<span class="tag quality q-${esc(quality)}" title="Quality of your file">${esc(QUALITY[quality] || quality)}</span>` : "";
+}
+
+// Song history: recorded, first known, leaked, each version's first appearance, releases.
+const HISTORY_ICONS = { recorded: "●", first_known: "◆", leaked: "▲", version: "◇", bootleg: "▲", released: "★", title: "✎" };
+function songHistory(song) {
+  const events = song.history || [];
+  if (!events.length) return "";
+  return `<h3>History</h3><ol class="history">${events.map((e) => `<li class="h-${esc(e.kind)}">
+    <span class="h-date">${esc(e.date ? fmtDate(e.date) : "undated")}</span>
+    <span class="h-icon" aria-hidden="true">${HISTORY_ICONS[e.kind] || "•"}</span><span>${esc(e.text.charAt(0).toUpperCase() + e.text.slice(1))}</span></li>`).join("")}</ol>`;
+}
+
+// Samples, interpolations, covers and remixes (Genius song relationships).
+function songConnections(song) {
+  const groups = song.connections || [];
+  if (!groups.length) return "";
+  const item = (s) => s.song_id ? `<a href="#/song/${s.song_id}">${esc(s.title)}</a>${s.artist ? ` <span class="muted">${esc(s.artist)}</span>` : ""}`
+    : `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a>${s.artist ? ` <span class="muted">${esc(s.artist)}</span>` : ""}`;
+  return `<h3>Samples &amp; connections</h3><dl class="credits connections">${groups.map((g) => {
+    const first = g.songs.slice(0, 6), rest = g.songs.slice(6);
+    return `<dt>${esc(g.label)}</dt><dd>${first.map(item).join(", ")}${rest.length
+      ? ` <details class="more"><summary>${rest.length} more</summary>${rest.map(item).join(", ")}</details>` : ""}</dd>`;
+  }).join("")}</dl><p class="src">From Genius</p>`;
+}
+
+// What each source confirms (recording_sources notes), folded.
+function provenance(song) {
+  const notes = new Map();
+  for (const s of song.sources || []) {
+    if (!s.notes) continue;
+    const key = `${s.name}|${s.notes}`;
+    if (!notes.has(key)) notes.set(key, { ...s, versions: new Set() });
+    if (s.version) notes.get(key).versions.add(s.version);
+  }
+  if (!notes.size) return "";
+  return `<details class="provenance"><summary>What the sources confirm (${notes.size})</summary><ul>${[...notes.values()].map((n) =>
+    `<li><strong>${n.url ? `<a href="${esc(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.name)}</a>` : esc(n.name)}</strong>:
+      ${esc(n.notes)}${n.versions.size ? ` <span class="muted">(${esc([...n.versions].join(", "))})</span>` : ""}</li>`).join("")}</ul></details>`;
 }
 
 // Releases a version is on: one entry per release group (its first edition), the other
@@ -523,6 +578,26 @@ $("release-list").addEventListener("toggle", (event) => {  // remember folded ca
   if (group) state.releaseOpen[group.dataset.type] = group.open;
 }, true);
 
+// Editions side by side: each song's position on each edition; songs that are not on
+// every edition are marked (bonus tracks, removed tracks), moved tracks show different numbers.
+function compareEditions(release) {
+  const cmp = release.comparison;
+  if (!cmp || !cmp.songs.length) return "";
+  const names = { [release.id]: "This" };
+  for (const e of release.editions) {
+    names[e.id] = e.edition ? capital(e.edition) : e.title !== release.title ? e.title : fmtDate(e.release_date) || "Edition";
+  }
+  const differs = cmp.songs.filter((s) => !s.on_all || new Set(Object.values(s.positions)).size > 1).length;
+  return `<details class="compare"><summary>Compare editions <span class="muted">(${differs ? plural(differs, "difference") : "same tracks"})</span></summary>
+    <div class="compare-scroll"><table class="rows compare-table"><thead><tr><th>Song</th>${cmp.releases.map((id) =>
+      `<th title="${esc(names[id] || "")}">${esc(names[id] || "")}</th>`).join("")}</tr></thead><tbody>${cmp.songs.map((s) => {
+      const moved = s.on_all && new Set(Object.values(s.positions)).size > 1;
+      return `<tr class="${s.on_all ? (moved ? "moved" : "") : "partial"}"><td><a href="#/song/${s.id}">${esc(s.title)}</a></td>${cmp.releases.map((id) =>
+        `<td class="pos">${s.positions[id] ? esc(s.positions[id]) : `<span class="muted">—</span>`}</td>`).join("")}</tr>`;
+    }).join("")}</tbody></table></div>
+    <p class="src">— not on that edition · highlighted: on some editions only · numbers differ: moved</p></details>`;
+}
+
 async function openRelease(id) {
   const release = await getJSON(`/api/v1/releases/${id}`);
   state.release = release;
@@ -554,7 +629,8 @@ async function openRelease(id) {
       `<a class="mini-card" href="#/release/${e.id}">${releaseCover(release, "small")}<span><span class="title">${esc(e.edition
         ? capital(e.edition) : e.title !== release.title ? e.title : fmtDate(e.release_date) || "Edition")}</span><br>
         <span class="muted">${esc(fmtDate(e.release_date) || "no date")} · ${plural(e.tracks, "track")}${e.tracks !== release.tracks.length
-          ? ` (${e.tracks > release.tracks.length ? "+" : ""}${e.tracks - release.tracks.length})` : ""}</span></span></a>`).join("")}</div>` : ""}
+          ? ` (${e.tracks > release.tracks.length ? "+" : ""}${e.tracks - release.tracks.length})` : ""}</span></span></a>`).join("")}</div>
+      ${compareEditions(release)}` : ""}
     ${sources.length ? `<h3>Sources</h3>${serviceLinks(sources)}` : ""}`;
   showPanel();
 }
@@ -585,7 +661,8 @@ async function init() {
   for (const variant of songs.flatMap((s) => s.variants || [])) typeCounts[variant.type] = (typeCounts[variant.type] || 0) + 1;
   const types = Object.keys(typeCounts).sort((a, b) => Object.keys(VERSION_TYPES).indexOf(a) - Object.keys(VERSION_TYPES).indexOf(b));
   $("vtype").insertAdjacentHTML("beforeend", types.map((t) =>
-    `<option value="${esc(t)}">${esc(VERSION_TYPES[t] || t)} (${typeCounts[t]})</option>`).join(""));
+    `<option value="${esc(t)}">${esc(VERSION_TYPES[t] || t)} (${typeCounts[t]})</option>`).join("")
+    + `<option value="wanted">Wanted: snippets only (${songs.filter((s) => s.wanted).length})</option>`);
   const releaseTypes = [...new Set(releases.map((r) => r.release_type))].sort((a, b) =>
     Object.keys(RELEASE_TYPES).indexOf(a) - Object.keys(RELEASE_TYPES).indexOf(b));
   $("release-type").insertAdjacentHTML("beforeend", releaseTypes.map((t) => `<option value="${esc(t)}">${esc(RELEASE_TYPES[t] || t)}</option>`).join(""));
@@ -874,6 +951,19 @@ $("era-views").addEventListener("click", (event) => {
   renderEraGrid();
 });
 
+// The trackers' era header: versions of each type, songs with a file, wanted songs.
+function eraTrackerCounts(era) {
+  const songs = state.songs.filter((s) => s.era === era.id && !s.guest);
+  const byType = {};
+  for (const v of songs.flatMap((s) => s.variants || [])) byType[v.type] = (byType[v.type] || 0) + 1;
+  const parts = Object.keys(VERSION_TYPES).filter((t) => byType[t]).map((t) =>
+    `<span class="era-count"><strong>${byType[t]}</strong> ${esc((VERSION_TYPES[t] || t).toLowerCase())}</span>`);
+  const files = songs.filter((s) => s.file).length, wanted = songs.filter((s) => s.wanted).length;
+  if (files) parts.push(`<span class="era-count"><strong>${files}</strong> with a file</span>`);
+  if (wanted) parts.push(`<span class="era-count"><strong>${wanted}</strong> wanted</span>`);
+  return parts.length ? `<div class="era-tracker-counts">${parts.join("")}</div>` : "";
+}
+
 async function openEra(id) {
   const era = await getJSON(`/api/v1/eras/${id}`);
   const own = era.songs.filter((s) => !s.guest);
@@ -893,6 +983,7 @@ async function openEra(id) {
         · ${plural(era.songs.length - own.length, "guest appearance")}</div>
       ${eraSummary(era)}
       ${stackedBars("Songs of this era", [{ label: eraName(era), values: counts }], STATUS_SERIES)}
+      ${eraTrackerCounts(era)}
     </div></div>
     ${era.releases.length ? `<h3>Official releases of the era</h3><div class="grid era-releases">${releaseCards}</div>` : ""}
     ${era.producers.length ? `<h3>Producers</h3><p>${people(era.producers)}</p>` : ""}
@@ -1131,10 +1222,80 @@ function exportCsv() {
 }
 $("export-csv").addEventListener("click", exportCsv);
 
+/* ---------- completeness: how complete and checked the catalogue is ---------- */
+const CHECK_LABELS = { date: "Date", cover: "Cover", musicbrainz: "MusicBrainz", listen: "Listen link",
+                       era: "Era", source: "Source", producer: "Producer" };
+
+function checkCell(check) {
+  if (!check || !check.total) return `<td class="muted">—</td>`;
+  const share = check.done / check.total;
+  const level = share >= 0.95 ? "good" : share >= 0.6 ? "mid" : "low";
+  return `<td class="cmp-cell ${level}" title="${check.done} of ${check.total}">
+    <div class="check-bar"><span style="width:${(share * 100).toFixed(1)}%"></span></div>
+    <span class="check-num">${Math.round(share * 100)}%</span> <span class="muted">${check.total - check.done ? `${check.total - check.done} missing` : "all"}</span></td>`;
+}
+
+function checkTable(rows, label) {
+  const keys = [...new Set(rows.flatMap((r) => Object.keys(r.checks)))];
+  return `<div class="check-scroll"><table class="check-table"><thead><tr><th></th>${keys.map((k) => `<th>${esc(CHECK_LABELS[k] || k)}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map((r) => `<tr><th scope="row">${label(r)} <span class="muted">${r.total}</span></th>${keys.map((k) => checkCell(r.checks[k])).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+
+async function renderCompleteness() {
+  const data = await getJSON("/api/v1/completeness");
+  const releaseLabel = (r) => `${esc(r.discography === "official" ? "Official" : "Unofficial")} · ${esc(RELEASE_TYPES[r.type] || r.type)}`;
+  const songLabel = (r) => (r.kind === "guest" ? "Guest appearances" : "Lil Wayne's songs");
+  $("completeness").innerHTML = `
+    <p class="muted">How complete the catalogue is: what share of releases and songs has a date, a cover, a source ...
+      Missing data is the to-do list; a song without an era has no known date in any source.</p>
+    <h3>Releases</h3>${checkTable(data.releases, releaseLabel)}
+    <h3>Songs</h3>${checkTable(data.songs, songLabel)}
+    <h3>Open questions</h3><ul class="open-questions">${data.open.map((o) =>
+      `<li><strong>${o.count}</strong> ${esc(o.label)}</li>`).join("")}</ul>`;
+}
+
+/* ---------- global search: songs (titles, alternate titles, versions), releases, people ---------- */
+function globalSearch(text) {
+  const key = (s) => fold(s).replace(/[^\p{L}\p{N}]+/gu, "");  // "Mrs. Officer" = "mrs off…"
+  const query = key(text.trim());
+  if (query.length < 2) return `<p class="muted">Type at least two letters.</p>`;
+  const rank = (name) => { const f = key(name); return f === query ? 0 : f.startsWith(query) ? 1 : f.includes(query) ? 2 : 9; };
+  const best = (items, names) => items.map((item) => ({ item, score: Math.min(...names(item).map(rank)), length: key(names(item)[0]).length }))
+    .filter((x) => x.score < 9).sort((a, b) => a.score - b.score || a.length - b.length).slice(0, 8).map((x) => x.item);
+  const songs = best(state.songs || [], (s) => [s.title, ...(s.aliases || []), ...(s.variants || []).map((v) => `${s.title} ${v.name || ""}`)]);
+  const releases = best(state.releases || [], (r) => [r.title]);
+  const people = best(state.people || [], (p) => [p.name]);
+  const group = (title, rows) => rows.length ? `<div class="gs-group"><div class="gs-title">${title}</div>${rows.join("")}</div>` : "";
+  const html = group("Songs", songs.map((s) => `<a class="gs-row" href="#/song/${s.id}">${songCover(s, "tiny")}<span>${esc(s.title)}
+      <span class="muted">${esc([songArtist(s), s.album ? s.album.title : "", (s.date || "").slice(0, 4)].filter(Boolean).join(" · "))}</span></span>${badge(s.status)}</a>`))
+    + group("Releases", releases.map((r) => `<a class="gs-row" href="#/release/${r.id}">${releaseCover(r, "tiny")}<span>${esc(r.title)}
+      <span class="muted">${esc((RELEASE_TYPES[r.release_type] || r.release_type || "").replace(/s$/, ""))} · ${esc((r.release_date || "").slice(0, 4))}</span></span></a>`))
+    + group("People", people.map((p) => `<a class="gs-row" href="#/artist/${p.id}"><span>${esc(p.name)}</span></a>`));
+  return html || `<p class="muted">Nothing found.</p>`;
+}
+function setGlobalSearch(open) {
+  $("global-search").hidden = !open;
+  $("global-search-open").setAttribute("aria-expanded", String(open));
+  if (open) { $("global-search-input").focus(); $("global-search-input").select(); }
+}
+$("global-search-open").addEventListener("click", (event) => { event.stopPropagation(); setGlobalSearch($("global-search").hidden); });
+$("global-search-input").addEventListener("input", () => { $("global-search-results").innerHTML = globalSearch($("global-search-input").value); });
+$("global-search-input").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") { const first = $("global-search-results").querySelector("a"); if (first) { location.hash = first.getAttribute("href"); setGlobalSearch(false); } }
+  if (event.key === "Escape") setGlobalSearch(false);
+});
+$("global-search-results").addEventListener("click", (event) => { if (event.target.closest("a")) setGlobalSearch(false); });
+document.addEventListener("click", (event) => {
+  if (!$("global-search").hidden && !event.target.closest("#global-search, #global-search-open")) setGlobalSearch(false);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "/" && !event.target.closest("input, textarea, select, [contenteditable]")) { event.preventDefault(); setGlobalSearch(true); }
+});
+
 /* ---------- routing (#/songs, #/song/12, #/release/8, #/artist/45 ...) ---------- */
 
 const SECTION_NAMES = { about: "About Lil Wayne", songs: "Songs", eras: "Eras", timeline: "Timeline", releases: "Releases",
-                        people: "People", stats: "Statistics" };
+                        people: "People", stats: "Statistics", completeness: "Completeness" };
 
 function setDrawer(open) {
   $("drawer").hidden = !open;
@@ -1149,6 +1310,7 @@ function showTab(name) {
   for (const view of Object.keys(SECTION_NAMES)) $(`${view}-view`).hidden = view !== name;
   state.tab = name;
   if (name === "stats" && !state.statsLoaded) renderStats().catch((e) => { $("stats").textContent = e.message; });
+  if (name === "completeness") renderCompleteness().catch((e) => { $("completeness").textContent = e.message; });
   if (name === "about" && !state.aboutLoaded) renderAbout().catch((e) => { $("about").textContent = e.message; });
   if (name === "timeline" && !state.timeline) renderTimeline().catch((e) => { $("timeline").textContent = e.message; });
 }
@@ -1552,6 +1714,7 @@ const NAV_ICONS = {
   releases: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 14.5a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9zm0-5.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2z",
   people: "M16 11a3 3 0 1 0-3-3 3 3 0 0 0 3 3zm-8 0a3 3 0 1 0-3-3 3 3 0 0 0 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13zm8 0c-.29 0-.62.02-.97.05A4.22 4.22 0 0 1 17 16.5V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z",
   stats: "M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z",
+  completeness: "M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z",
   about: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-6h2zm0-8h-2V7h2z",
   appearance: "M12 3a9 9 0 0 0 0 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4.42-4.03-8-9-8zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z",
   player: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-2 14.5v-9l6 4.5-6 4.5z",

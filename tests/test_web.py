@@ -381,5 +381,36 @@ class ExportStaticTests(unittest.TestCase):
         self.assertEqual(without_local_files(data), {"play": {"v": 7, "spotify": "abc1234567"}})
 
 
+class SongHistoryTests(unittest.TestCase):
+    """Song history and the "Former" mark are built from the song answer itself."""
+    def song(self):
+        track = lambda release, date, discography, title=None: {
+            "release": release, "release_date": date, "discography": discography, "track_title": title}
+        return {"title": "A Milli", "recording_date": None, "leak_date": None, "first_known_date": "2008-03-01",
+                "sources": [{"name": "Genius", "notes": "First known date 2008-03-01: Genius, song page"}],
+                "versions": [
+                    {"version_type": "album", "version_name": "Album Version", "first_known_date": None,
+                     "tracks": [track("The Leak 3", "2008", "unofficial"), track("A Milli", "2008-04-28", "official"),
+                                track("Tha Carter III", "2008-06-10", "official", "A Milli"),
+                                track("Carter Chronicles", "2009", "unofficial", "22. A MILLI (LIVE)"),
+                                track("Other", "2010", "official", "A Million")]},
+                    {"version_type": "demo", "version_name": "Demo", "first_known_date": "2007-12-01", "tracks": []}]}
+
+    def test_history(self):
+        events = tracker_data.song_history(self.song())
+        self.assertEqual([(e["date"], e["kind"]) for e in events], [
+            ("2007-12-01", "version"), ("2008", "bootleg"), ("2008-03-01", "first_known"),
+            ("2008-04-28", "released"), ("2010", "title")])
+        self.assertEqual(events[2]["text"], "First known (Genius)")
+        self.assertEqual(events[4]["text"], "Titled “A Million” on Other")  # track numbers / version markers are no new title
+
+    def test_former(self):
+        self.assertEqual(tracker_data.former(self.song()), {"known": "2007-12-01", "released": "2008-04-28"})
+        song = self.song()
+        song["first_known_date"] = None
+        song["versions"][1]["first_known_date"] = None
+        self.assertIsNone(tracker_data.former(song))  # a bootleg dated only "2008" is not surely before Apr 28
+
+
 if __name__ == "__main__":
     unittest.main()

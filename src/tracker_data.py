@@ -83,6 +83,16 @@ def songs(connection):
             "id": version_id, "type": version_type, "name": name, "date": date, "status": status,
             "album": {"id": release_id, "title": release_title} if release_id else None, "file": bool(has_file),
             "play": {"v": version_id, **playable[version_id]} if version_id in playable else None})
+    # "wanted": known from snippets only -- no other version leaked or released (the trackers' grails)
+    heard = {}
+    for recording_id, version_type, availability in connection.execute(
+            "SELECT v.recording_id, v.version_type, va.availability FROM versions v "
+            "JOIN version_availability va ON va.version_id = v.id"):
+        entry = heard.setdefault(recording_id, {"snippet": False, "full": False})
+        if version_type == "snippet":
+            entry["snippet"] = True
+        elif availability in ("leaked", "released"):
+            entry["full"] = True
     albums = song_albums(connection)
     credits = release_credits(connection)
     producers = {}
@@ -105,6 +115,7 @@ def songs(connection):
             "date": first_dates.get(row["id"]) or row["recording_date"],
             "versions": len(types), "types": sorted({t for t in types if t and t != "album"}),
             "variants": variants.get(row["id"], []),
+            "wanted": bool(heard.get(row["id"], {}).get("snippet") and not heard[row["id"]]["full"]),
             "releases": releases.get(row["id"], 0), "file": row["id"] in files,
             "aliases": aliases.get(row["id"], []), "producers": producers.get(row["id"], []),
             "cover": covers.get(row["id"]), "play": play.get(row["id"]), "album": albums.get(row["id"]),
@@ -367,6 +378,7 @@ def song(connection, recording_id):
             "SELECT service, url FROM version_links WHERE version_id = ? ORDER BY id", (version["id"],))] \
             if has_table(connection, "version_links") else []
         item["play"] = play.get(version["id"])
+        item["quality"] = file_quality(connection, version["id"])
         result["versions"].append(item)
     credits = {}
     for row in connection.execute("""
@@ -382,8 +394,8 @@ def song(connection, recording_id):
     result["aliases"] = [row[0] for row in connection.execute(
         "SELECT title FROM recording_aliases WHERE recording_id = ?", (recording_id,))]
     result["sources"] = [dict(row) for row in connection.execute("""
-        SELECT DISTINCT s.name, s.url, rs.notes FROM recording_sources rs JOIN sources s ON s.id = rs.source_id
-        LEFT JOIN versions v ON v.id = rs.version_id
+        SELECT DISTINCT s.name, s.url, rs.notes, v.version_name AS version FROM recording_sources rs
+        JOIN sources s ON s.id = rs.source_id LEFT JOIN versions v ON v.id = rs.version_id
         WHERE rs.recording_id = ? OR v.recording_id = ? ORDER BY s.name""", (recording_id, recording_id))]
     result["musicbrainz_alternates"] = [row[0] for row in connection.execute(
         "SELECT musicbrainz_recording_id FROM recording_musicbrainz_ids WHERE recording_id = ?", (recording_id,))]
@@ -396,10 +408,159 @@ def song(connection, recording_id):
                     listen[link["service"]] = link["url"]
             break
     result["listen"] = [{"service": service, "url": url} for service, url in listen.items()]
+    result["first_known_date"] = connection.execute(
+        "SELECT first_known_date FROM recordings WHERE id = ?", (recording_id,)).fetchone()[0] \
+        if has_column(connection, "recordings", "first_known_date") else None
+    result["history"] = song_history(result)
+    result["former"] = former(result)
+    result["connections"] = song_connections(connection, result)
+    result["genius_album"] = genius_album(result) if not any(v["tracks"] for v in result["versions"]) else None
     result["cover_file"] = song_covers_for(connection, recording_id)
     album = song_albums(connection).get(recording_id) if head["appearance"] != "guest" else None
     result["credit"] = release_credits(connection).get(album["id"]) if album else None
     return result
+
+
+def file_quality(connection, version_id):
+    """How good the best local file of a version is (the trackers' "Quality" column):
+    lossless, high (>= 256 kbps), medium (>= 160 kbps) or low; None without a file."""
+    best = None
+    for fmt, bitrate in connection.execute("SELECT format, bitrate FROM files WHERE version_id = ?", (version_id,)):
+        fmt = (fmt or "").lower().lstrip(".")
+        if fmt in ("flac", "wav", "alac", "aiff"):
+            rank = (3, "lossless")
+        elif not bitrate:
+            rank = (-1, None)
+        else:
+            rank = (2, "high") if bitrate >= 256000 else (1, "medium") if bitrate >= 160000 else (0, "low")
+        best = max(best or rank, rank)
+    return best[1] if best else None
+
+
+HISTORY_ORDER = {"recorded": 0, "first_known": 1, "leaked": 2, "version": 3, "bootleg": 4, "released": 5, "title": 6}
+
+
+def song_history(song):
+    """The life of a song as dated events: recorded, first known, leaked, each version's
+    first appearance, the first official release, other titles it was printed under."""
+    events = []
+
+    def add(date, kind, text, version=None):
+        events.append({"date": date, "kind": kind, "text": text, "version": version})
+
+    if song.get("recording_date"):
+        add(song["recording_date"], "recorded", "Recorded")
+    if song.get("first_known_date"):
+        source = next((s["name"] for s in song.get("sources", [])
+                       if (s.get("notes") or "").startswith("First known date")), None)
+        add(song["first_known_date"], "first_known", "First known" + (f" ({source})" if source else ""))
+    if song.get("leak_date"):
+        add(song["leak_date"], "leaked", "Leaked")
+    from titles import normalized_title
+    from version_types import split_version
+    titles = {normalized_title(song["title"])}
+    for version in song["versions"]:
+        name = None if version["version_type"] == "album" else (version["version_name"] or version["version_type"])
+        tracks = sorted((t for t in version["tracks"] if t.get("release_date")), key=lambda t: t["release_date"])
+        official = next((t for t in tracks if t["discography"] == "official"), None)
+        unofficial = next((t for t in tracks if t["discography"] != "official"), None)
+        if version.get("first_known_date"):
+            add(version["first_known_date"], "version", f"{name or 'Main version'} first known", name)
+        if unofficial and (not official or unofficial["release_date"] < official["release_date"]):
+            add(unofficial["release_date"], "bootleg",
+                f"{name + ' on' if name else 'On'} the bootleg {unofficial['release']}", name)
+        if official:
+            add(official["release_date"], "released",
+                f"{name + ' released' if name else 'Released'} on {official['release']}", name)
+        for track in tracks:  # other titles the song was printed under (not "22. A MILLI (LIVE)")
+            title = re.sub(r"^\s*\d{1,2}\s*[.)-]\s*", "", track.get("track_title") or "")
+            key = normalized_title(split_version(title)[0]) if title else None
+            if key and key not in titles:
+                titles.add(key)
+                title = split_version(title)[0]
+                add(track["release_date"], "title", f"Titled \u201c{title}\u201d on {track['release']}", name)
+
+    def order(event):
+        period = eras.date_range(event["date"])
+        return (period[0] if period else "9999", HISTORY_ORDER[event["kind"]])
+    return sorted(events, key=order)
+
+
+def former(song):
+    """{"known": date, "released": date} when the song was known (a leak, a bootleg, a
+    source) before its first official release -- the trackers' "Former" tag; else None."""
+    official = [t["release_date"] for v in song["versions"] for t in v["tracks"]
+                if t["discography"] == "official" and eras.date_range(t.get("release_date"))]
+    if not official:
+        return None
+    released = min(official, key=lambda d: eras.date_range(d)[0])
+    candidates = [song.get("leak_date"), song.get("first_known_date")]
+    candidates += [v.get("first_known_date") for v in song["versions"]]
+    candidates += [t["release_date"] for v in song["versions"] for t in v["tracks"] if t["discography"] != "official"]
+    earlier = [d for d in candidates if eras.date_range(d) and eras.date_range(d)[1] < eras.date_range(released)[0]]
+    if not earlier:
+        return None
+    return {"known": min(earlier, key=lambda d: eras.date_range(d)[0]), "released": released}
+
+
+CONNECTION_LABELS = {"samples": "Samples", "sampled_in": "Sampled in", "interpolates": "Interpolates",
+                     "interpolated_by": "Interpolated by", "cover_of": "Cover of", "covered_by": "Covered by",
+                     "remix_of": "Remix of", "remixed_by": "Remixed by"}
+
+
+@functools.lru_cache(maxsize=1)
+def _genius_cache(modified):
+    from genius_details import load_cache
+    return load_cache()
+
+
+def genius_cache():
+    """exports/genius_song_details.json (genius_details.py), read again when it changes."""
+    from genius_details import CACHE_PATH
+    return _genius_cache(CACHE_PATH.stat().st_mtime if CACHE_PATH.exists() else 0)
+
+
+@functools.lru_cache(maxsize=1)
+def _genius_albums(modified):
+    from genius_details import load_albums
+    return load_albums()
+
+
+def genius_album(song):
+    """The Genius album of a song that is on no catalogued release (most guest
+    appearances): name, artist, date and page, so "Appears on" is not empty."""
+    from genius_details import ALBUMS_PATH
+    albums = _genius_albums(ALBUMS_PATH.stat().st_mtime if ALBUMS_PATH.exists() else 0)
+    cache = genius_cache()
+    for genius_id in [song.get("genius_song_id")] + [v.get("genius_song_id") for v in song["versions"]]:
+        details = cache.get(genius_id) or {}
+        album = details.get("album") or {}
+        if album.get("id"):
+            full = albums.get(album["id"]) or {}
+            return {"id": album["id"], "name": album.get("name"), "artist": album.get("artist"),
+                    "release_date": album.get("release_date"), "url": full.get("url"),
+                    "song_url": details.get("url")}
+    return None
+
+
+def song_connections(connection, song):
+    """Samples, interpolations, covers and remixes from Genius (song relationships);
+    a related song that is in the catalogue links to it (song_id)."""
+    ids = {song.get("genius_song_id")} | {v.get("genius_song_id") for v in song["versions"]}
+    ids.discard(None)
+    if not ids:
+        return []
+    cache = genius_cache()
+    by_genius = dict(connection.execute("SELECT genius_song_id, id FROM recordings WHERE genius_song_id IS NOT NULL"))
+    result = {}
+    for genius_id in ids:
+        for relation in (cache.get(genius_id) or {}).get("relationships") or []:
+            group = result.setdefault(relation["type"], {})
+            for other in relation["songs"]:
+                group.setdefault(other["id"], {**other, "song_id": by_genius.get(other["id"])})
+    order = list(CONNECTION_LABELS)
+    return [{"type": kind, "label": CONNECTION_LABELS.get(kind, kind), "songs": list(songs.values())}
+            for kind, songs in sorted(result.items(), key=lambda item: order.index(item[0]) if item[0] in order else 99)]
 
 
 def song_covers_for(connection, recording_id):
@@ -478,6 +639,72 @@ def era(connection, era_id):
             GROUP BY a.id ORDER BY songs DESC, a.name LIMIT 8""", (era_id, role))]
     result["producers"], result["featured"] = top("producer"), top("featured_artist")
     return result
+
+
+REVIEW_QUEUE_PATH = Path(__file__).resolve().parent.parent / "data" / "reviewed_candidates.json"
+
+
+def completeness(connection):
+    """How complete and checked the catalogue is (the Completeness page): per release
+    category and for songs, how many have a date, cover, source, era ... and the open questions."""
+    def pct(done, total):
+        return {"done": done, "total": total}
+
+    releases = []
+    for discography, release_type, total, dated, covered, musicbrainz, linked in connection.execute("""
+        SELECT r.discography, r.release_type, count(*),
+               sum(COALESCE(r.release_date, '') != ''), sum(r.cover_file IS NOT NULL),
+               sum(r.musicbrainz_release_id IS NOT NULL),
+               sum(EXISTS (SELECT 1 FROM release_links l WHERE l.release_id = r.id))
+        FROM releases r GROUP BY 1, 2 ORDER BY r.discography, count(*) DESC"""):
+        releases.append({"discography": discography, "type": release_type, "total": total,
+                         "checks": {"date": pct(dated, total), "cover": pct(covered, total),
+                                    "musicbrainz": pct(musicbrainz, total),
+                                    # bootlegs are never on streaming services
+                                    "listen": pct(linked, total) if discography == "official" else None}})
+    def ids(sql):
+        return {row[0] for row in connection.execute(sql)}
+
+    on_release = """SELECT v.recording_id FROM versions v JOIN release_tracks t ON t.version_id = v.id"""
+    has = {
+        "era": ids("SELECT id FROM recordings WHERE era_id IS NOT NULL"),
+        "date": ids("""SELECT id FROM recordings WHERE recording_date IS NOT NULL OR leak_date IS NOT NULL
+                       OR first_known_date IS NOT NULL
+                       UNION SELECT recording_id FROM versions WHERE first_known_date IS NOT NULL
+                       UNION SELECT v.recording_id FROM versions v JOIN release_tracks t ON t.version_id = v.id
+                       JOIN releases r ON r.id = t.release_id WHERE COALESCE(r.release_date, '') != ''"""),
+        "source": ids(f"""SELECT id FROM recordings WHERE musicbrainz_recording_id IS NOT NULL OR genius_song_id IS NOT NULL
+                          UNION SELECT recording_id FROM recording_sources WHERE recording_id IS NOT NULL
+                          UNION {on_release}"""),
+        "producer": ids("""SELECT recording_id FROM credits WHERE role = 'producer' AND recording_id IS NOT NULL
+                           UNION SELECT v.recording_id FROM credits c JOIN versions v ON v.id = c.version_id
+                           WHERE c.role = 'producer'"""),
+        "listen": ids("""SELECT v.recording_id FROM versions v JOIN version_links l ON l.version_id = v.id
+                         UNION SELECT v.recording_id FROM versions v JOIN release_tracks t ON t.version_id = v.id
+                         JOIN release_links l ON l.release_id = t.release_id"""),
+    }
+    groups = {}
+    for recording_id, appearance in connection.execute("SELECT id, appearance FROM recordings"):
+        groups.setdefault("guest" if appearance == "guest" else "own", []).append(recording_id)
+    songs = [{"kind": kind, "total": len(members),
+              "checks": {key: pct(sum(1 for m in members if m in found), len(members)) for key, found in has.items()}}
+             for kind, members in sorted(groups.items(), key=lambda item: item[0] != "own")]
+    from titles import normalized_title
+    seen = {}
+    for recording_id, title, appearance in connection.execute("SELECT id, title, appearance FROM recordings"):
+        seen.setdefault((normalized_title(title), appearance or "own"), []).append(recording_id)
+    duplicates = sum(1 for ids in seen.values() if len(ids) > 1)
+    pending = 0
+    if REVIEW_QUEUE_PATH.exists():
+        queue = json.loads(REVIEW_QUEUE_PATH.read_text(encoding="utf-8"))
+        pending = sum(1 for c in queue.get("candidates", []) if c.get("decision") == "pending")
+    return {
+        "releases": releases, "songs": songs,
+        "open": [
+            {"key": "queue", "label": "MusicBrainz release groups not decided yet", "count": pending},
+            {"key": "same_title", "label": "Song titles used by more than one song (possible duplicates)", "count": duplicates},
+        ],
+    }
 
 
 def stats(connection):
@@ -623,4 +850,24 @@ def release(connection, release_id):
                    (SELECT count(*) FROM release_tracks t WHERE t.release_id = r.id) AS tracks
             FROM releases r WHERE r.musicbrainz_release_group_id = ? AND r.id != ?
             ORDER BY r.release_date, r.id""", (group, release_id))]
+    result["comparison"] = compare_editions(connection, [release_id] + [e["id"] for e in result["editions"]])         if result["editions"] else None
     return result
+
+
+def compare_editions(connection, release_ids):
+    """Editions of one album side by side: every song with its position on each edition
+    (None: not on it), so added, removed and moved tracks show at a glance."""
+    songs, order = {}, []
+    for release_id in release_ids:
+        for recording_id, title, disc, number in connection.execute("""
+            SELECT v.recording_id, r.title, rt.disc_number, rt.track_number
+            FROM release_tracks rt JOIN versions v ON v.id = rt.version_id JOIN recordings r ON r.id = v.recording_id
+            WHERE rt.release_id = ? ORDER BY rt.disc_number, rt.track_number""", (release_id,)):
+            if recording_id not in songs:
+                songs[recording_id] = {"id": recording_id, "title": title, "positions": {}}
+                order.append(recording_id)
+            songs[recording_id]["positions"].setdefault(str(release_id), f"{disc}-{number}" if disc and disc > 1 else str(number))
+    rows = [songs[i] for i in order]
+    for row in rows:
+        row["on_all"] = len(row["positions"]) == len(release_ids)
+    return {"releases": release_ids, "songs": rows}

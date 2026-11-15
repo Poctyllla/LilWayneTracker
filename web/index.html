@@ -15,6 +15,9 @@
     <a class="brand" href="#/songs"><h1>Lil Wayne Tracker</h1><span class="section" id="section-name">Songs</span></a>
   </div>
   <div class="top-actions">
+    <button class="icon-button" id="global-search-open" title="Search everything (/)" aria-label="Search everything" aria-controls="global-search" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z"/></svg>
+    </button>
     <button class="icon-button" id="notifications" title="Today: on this day, random song, open questions" aria-label="Notifications" aria-controls="notify-panel" aria-expanded="false">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2Z"/></svg>
       <span class="dot-count" id="notify-count" hidden></span>
@@ -24,6 +27,11 @@
     </button>
   </div>
 </header>
+
+<div class="popover search-popover" id="global-search" hidden>
+  <input type="search" id="global-search-input" placeholder="Songs, versions, releases, people …" autocomplete="off" aria-label="Search everything">
+  <div id="global-search-results"><p class="muted">Type at least two letters.</p></div>
+</div>
 
 <div class="popover" id="notify-panel" hidden>
   <div class="popover-head"><strong>Today</strong><button class="act ghost" id="random-song">🎲 Random song</button></div>
@@ -87,6 +95,7 @@
   <a class="tab" data-tab="releases" href="#/releases">Releases</a>
   <a class="tab" data-tab="people" href="#/people">People</a>
   <a class="tab" data-tab="stats" href="#/stats">Statistics</a>
+  <a class="tab" data-tab="completeness" href="#/completeness">Completeness</a>
   <a class="tab tab-bottom" data-tab="about" href="#/about">About Lil Wayne</a>
 </nav>
 
@@ -154,6 +163,10 @@
 
   <section id="stats-view" hidden>
     <div id="stats"></div>
+  </section>
+
+  <section id="completeness-view" hidden>
+    <div id="completeness"></div>
   </section>
 
   <section id="releases-view" hidden>

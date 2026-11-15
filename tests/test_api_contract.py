@@ -203,6 +203,7 @@ class ApiContractTests(unittest.TestCase):
             contract[f"GET {name or path}"] = shape(self.get_json(path))
         contract["GET /api/v1/"] = shape(self.get_json("/api/v1/"))
         contract["GET /api/v1/eras"] = shape(self.get_json("/api/v1/eras"))
+        contract["GET /api/v1/completeness"] = shape(self.get_json("/api/v1/completeness"))
         contract["GET /api/v1/versions/<id>/sources"] = shape(self.get_json(f"/api/v1/versions/{self.ids['album']}/sources"))
         status, headers, body = self.request(f"/api/audio/{self.ids['file']}", headers={"Range": "bytes=0-99"})
         contract["GET /api/audio/<file id> (Range)"] = {
@@ -212,7 +213,7 @@ class ApiContractTests(unittest.TestCase):
 
     def test_every_route_is_covered(self):
         paths = list(self.json_paths()) + list(self.v1_paths()) + [
-            "/api/v1/", "/api/v1", "/api/v1/eras", f"/api/audio/{self.ids['file']}", f"/api/v1/stream/{self.ids['file']}",
+            "/api/v1/", "/api/v1", "/api/v1/eras", "/api/v1/completeness", f"/api/audio/{self.ids['file']}", f"/api/v1/stream/{self.ids['file']}",
             f"/api/v1/versions/{self.ids['album']}/sources"]
         for route in api_routes.ROUTES:
             for pattern in route.patterns:

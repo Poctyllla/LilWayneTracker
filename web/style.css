@@ -772,3 +772,66 @@ body.has-player .modal-backdrop { bottom: 76px; }
 .htl-labels { position: absolute; inset: 0; pointer-events: none; z-index: 6; }
 .htl-labels .htl-lane-label { left: 10px; padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--surface) 85%, transparent);
                               backdrop-filter: blur(4px); }
+
+/* song window: history, connections, provenance, quality, former */
+.history { list-style: none; margin: 6px 0 4px; padding: 0 0 0 4px; border-left: 2px solid var(--line); }
+.history li { display: grid; grid-template-columns: 7.5em 1.2em 1fr; gap: 6px; padding: 3px 0 3px 10px; position: relative; font-size: 14px; }
+.history .h-date { color: var(--muted); font-variant-numeric: tabular-nums; }
+.history .h-icon { color: var(--accent); text-align: center; }
+.history .h-released .h-icon { color: var(--released); }
+.history .h-leaked .h-icon, .history .h-bootleg .h-icon { color: var(--leaked); }
+.tag.former { border-color: var(--leaked); color: var(--leaked); }
+.tag.quality.q-lossless, .tag.quality.q-high { border-color: var(--released); color: var(--released); }
+.tag.quality.q-low { border-color: var(--leaked); color: var(--leaked); }
+.connections a { color: var(--accent); text-decoration: none; }
+.connections details.more { display: inline; }
+.connections details.more summary { display: inline; cursor: pointer; color: var(--muted); font-size: 12px; }
+.provenance { margin-top: 8px; font-size: 13px; }
+.provenance summary { cursor: pointer; color: var(--muted); }
+.provenance ul { margin: 6px 0 0; padding-left: 18px; }
+.provenance li { margin-bottom: 3px; }
+.provenance a { color: var(--accent); text-decoration: none; }
+
+/* completeness page */
+.check-table th[scope="row"] { text-align: left; font-weight: 600; white-space: nowrap; }
+.check-table td.cmp-cell { min-width: 120px; }
+.check-bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; margin-bottom: 3px; }
+.check-bar span { display: block; height: 100%; background: var(--accent); }
+.cmp-cell.good .check-bar span { background: var(--released); }
+.cmp-cell.low .check-bar span { background: var(--leaked); }
+.check-num { font-weight: 700; font-variant-numeric: tabular-nums; }
+.open-questions li { margin-bottom: 4px; }
+
+.era-tracker-counts { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 13px; color: var(--muted); }
+.era-count strong { color: var(--text); font-variant-numeric: tabular-nums; }
+
+.genius-album { padding: 8px 0; }
+.genius-album a { color: var(--accent); text-decoration: none; }
+
+/* edition comparison */
+.compare { margin-top: 10px; }
+.compare summary { cursor: pointer; font-weight: 600; }
+.compare-scroll { overflow-x: auto; margin-top: 8px; }
+.compare-table th { font-size: 12px; max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compare-table td.pos { text-align: center; font-variant-numeric: tabular-nums; }
+.compare-table tr.partial td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.compare-table tr.moved td.pos { color: var(--leaked); }
+.compare-table a { color: inherit; text-decoration: none; }
+
+/* global search */
+.search-popover { width: min(520px, calc(100vw - 24px)); }
+.search-popover input { width: 100%; font: inherit; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line);
+                        background: var(--surface-2); color: var(--text); }
+#global-search-results { max-height: 60vh; overflow-y: auto; }
+.gs-group { margin-top: 8px; }
+.gs-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 4px 0; }
+.gs-row { display: flex; align-items: center; gap: 10px; padding: 5px 6px; border-radius: 8px; color: var(--text); text-decoration: none; }
+.gs-row:hover, .gs-row:focus { background: var(--surface-2); }
+.gs-row > span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.gs-row .muted { font-size: 12px; }
+.gs-row .cover.tiny { width: 32px; height: 32px; }
+
+.check-scroll { overflow-x: auto; }
+.check-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.check-table th, .check-table td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.check-table thead th { font-size: 12px; color: var(--muted); text-align: left; font-weight: 600; }

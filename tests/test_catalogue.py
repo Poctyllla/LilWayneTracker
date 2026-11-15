@@ -854,6 +854,10 @@ class EraTests(unittest.TestCase):
         self.assertEqual(by_title["Hot Revolver"], (1, "date"))  # released officially before its album's era
         self.assertEqual(by_title["No date"], (None, None))
         self.assertIsNone(by_title["Manual"])
+        # a song known only from a source (Genius / MusicBrainz / LilWayneHQ) gets its era by that date
+        self.c.execute("UPDATE recordings SET first_known_date = '2006' WHERE id = ?", (self.songs["No date"],))
+        self.assertEqual(plan_assignments(self.c, eras)[self.songs["No date"]], (1, "date"))
+        self.c.execute("UPDATE recordings SET first_known_date = NULL WHERE id = ?", (self.songs["No date"],))
         with self.c:
             apply(self.c, eras, plan)
             apply(self.c, eras, plan)  # idempotent

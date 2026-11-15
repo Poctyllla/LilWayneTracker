@@ -278,6 +278,10 @@ def initialize_database():
                 # Tracker fields (songs outside releases).
                 "era_id": "INTEGER REFERENCES eras(id)",
                 "leak_date": "TEXT",
+                # Earliest date the song is known by (a Genius / MusicBrainz /
+                # LilWayneHQ date, its source in recording_sources) -- for songs
+                # without a dated release, recording or leak date (Nov 15, 2026).
+                "first_known_date": "TEXT",
                 # Manual status: 'leaked', 'snippet', 'unreleased', 'released';
                 # NULL = computed in the recording_availability view.
                 "availability_override": "TEXT",
