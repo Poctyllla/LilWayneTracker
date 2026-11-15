@@ -266,7 +266,7 @@ def main(argv=None):
         for title, reason in skipped:
             print(f"   SKIP {title}: {reason}")
         if not args.apply:
-            print("Dry run; use --apply to change the database (make a backup first).")
+            print("Dry run; use --apply to change the database (back up first: python database.py --backup <label>).")
             return actions, skipped
         with connection:
             counts = apply(connection, actions)

@@ -4,20 +4,17 @@ export_static.py.
 Every route has a versioned path under /api/v1/ (resource names in the
 plural, as in the Juice WRLD API) and, while the page still uses them, its
 old path under /api/ (alias).  A route says whether it is local-only (never
-in the public static copy: streaming of the owner's files, lyrics, review)
+in the public static copy: streaming of the owner's files, lyrics)
 and, if it has an id, how to list its ids for the static copy.
 
     route.handler(connection, value, context) -> JSON-able data or None (404)
-    context: {"mode": "local" | "static", "profile": fn() -> dict | None,
-              "decisions": fn() -> path of data/song_review_decisions.json}
+    context: {"mode": "local" | "static", "profile": fn() -> dict | None}
 """
 
 import re
 
 import audio_providers
-import genius_details
 import lyrics_source
-import review_queue
 import tracker_data
 
 API_VERSION = "1"
@@ -60,7 +57,7 @@ def overview(connection, context):
     local = context.get("mode", "local") == "local"
     return {
         "name": "Lil Wayne Tracker API", "version": API_VERSION, "mode": "local" if local else "static",
-        "features": {"stream": local, "lyrics": local, "review": local},
+        "features": {"stream": local, "lyrics": local},
         "counts": tracker_data.summary(connection)["counts"],
         "endpoints": [{"name": r.name, "path": f"/api/v1/{r.path}", "local_only": r.local_only}
                       for r in ROUTES if local or not r.local_only],
@@ -115,8 +112,6 @@ ROUTES = [
           legacy="on-this-day/{month_day}", items=month_days),
     Route("profile", "profile", lambda c, v, x: x["profile"](), legacy="profile"),
     Route("lyrics", "lyrics/{id}", lambda c, v, x: lyrics_source.lookup(c, v), legacy="lyrics/{id}", local_only=True),
-    Route("review", "review", lambda c, v, x: review_queue.review_items(
-        c, genius_details.load_cache(), review_queue.load_decisions(x["decisions"]())), legacy="review", local_only=True),
     Route("stream", "stream/{id}", None, legacy="audio/{id}", local_only=True, kind="audio"),
 ]
 BY_NAME = {route.name: route for route in ROUTES}

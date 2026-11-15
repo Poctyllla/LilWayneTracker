@@ -14,9 +14,6 @@ the page in web/ and the JSON API of api_routes.py: /api/v1/... (GET
     /api/artist/<id>      one person: songs and roles
     /api/people           the most credited people
     /api/era/<id>, /api/stats, /api/profile (data/artist_profile.json)
-    /api/review           open review questions; POST stores one decision in
-                          data/song_review_decisions.json (never SQLite;
-                          song_review.py --apply moves it into the database)
     /api/audio/<file id>  a file of the owner's own library for the player
                           (this server only: it listens on 127.0.0.1; files
                           known to the files table only; Range requests for
@@ -29,22 +26,17 @@ import argparse
 import json
 import mimetypes
 import sys
-import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import api_routes
 import audio_providers
 import audio_stream
-import genius_details
-import review_queue
 import tracker_data
 
 
 WEB_FOLDER = Path(__file__).resolve().parent.parent / "web"
 ROUTES = api_routes.ROUTES  # the one route list (api_routes.py)
-MAX_BODY = 10_000
-WRITE_LOCK = threading.Lock()
 
 
 PROFILE_PATH = Path(__file__).resolve().parent.parent / "data" / "artist_profile.json"
@@ -55,13 +47,8 @@ def artist_profile():
     return json.loads(PROFILE_PATH.read_text(encoding="utf-8")) if PROFILE_PATH.exists() else None
 
 
-def decisions_file():
-    return Handler.decisions_path or review_queue.DECISIONS_PATH
-
-
 class Handler(BaseHTTPRequestHandler):
     database_path = None
-    decisions_path = None
 
     def do_GET(self):
         path = self.path.split("?", 1)[0]
@@ -69,42 +56,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.api(path)
         return self.static(path)
 
-    def do_POST(self):
-        """The only write: a review decision appended to data/song_review_decisions.json
-        (never SQLite).  Same-origin JSON only."""
-        route, _value = api_routes.find(self.path.split("?", 1)[0])
-        if route is not api_routes.BY_NAME["review"]:
-            return self.send(404, b'{"error": "unknown endpoint"}', "application/json")
-        origin = self.headers.get("Origin")
-        host = self.headers.get("Host", "")
-        if origin and origin not in (f"http://{host}",):
-            return self.send(403, b'{"error": "cross-origin request"}', "application/json")
-        if "application/json" not in self.headers.get("Content-Type", ""):
-            return self.send(415, b'{"error": "JSON expected"}', "application/json")
-        length = int(self.headers.get("Content-Length") or 0)
-        if not 0 < length <= MAX_BODY:
-            return self.send(400, b'{"error": "bad body size"}', "application/json")
-        try:
-            decision = json.loads(self.rfile.read(length).decode("utf-8"))
-            with WRITE_LOCK:  # one decision at a time (threaded server)
-                connection = tracker_data.connect(self.database_path)
-                try:
-                    items = review_queue.review_items(connection, genius_details.load_cache(),
-                                                      review_queue.load_decisions(decisions_file()))
-                finally:
-                    connection.close()
-                stored = review_queue.record_decision(decision, items, decisions_file())
-        except (ValueError, TypeError, AttributeError) as error:
-            return self.send(400, json.dumps({"error": str(error)}).encode("utf-8"), "application/json")
-        return self.send(200, json.dumps(stored, ensure_ascii=False).encode("utf-8"), "application/json")
-
     def api(self, path):
         route, value = api_routes.find(path)
         if route is None:
             return self.send(404, b'{"error": "unknown endpoint"}', "application/json")
         if route.kind == "audio":
             return self.audio(value)
-        context = {"mode": "local", "profile": artist_profile, "decisions": decisions_file}
+        context = {"mode": "local", "profile": artist_profile}
         connection = tracker_data.connect(self.database_path)
         try:
             data = route.handler(connection, value, context)

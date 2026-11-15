@@ -189,7 +189,7 @@ def main(argv=None):
         print(f"Official releases with a Spotify album: {len(releases)}; Spotify albums cached: {len(cache)}")
         print(f"Versions with a Spotify track link: {len(links)}; release tracks without a match: {unmatched}")
         if not args.apply:
-            print("Dry run; use --apply to store the links (make a backup first).")
+            print("Dry run; use --apply to store the links (back up first: python database.py --backup <label>).")
             return links
         with connection:
             for version_id, url in links.items():

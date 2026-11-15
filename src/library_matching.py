@@ -237,7 +237,7 @@ def main():
             with connection:
                 print(f"Inserted into files: {apply(connection, result['linked'])}")
         else:
-            print("Dry run; use --apply to write the files table (make a backup first).")
+            print("Dry run; use --apply to write the files table (back up first: python database.py --backup <label>).")
         return result
     finally:
         connection.close()

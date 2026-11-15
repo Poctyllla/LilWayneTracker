@@ -175,45 +175,6 @@
    "tracks": "int"
   }
  ],
- "GET /api/review": [
-  {
-   "candidates": [],
-   "early_releases": [
-    "int"
-   ],
-   "key": "str",
-   "kind": "str",
-   "recording": {
-    "artist": "str",
-    "artists": [
-     "str"
-    ],
-    "id": "int",
-    "status": "str",
-    "title": "str",
-    "tracks": [
-     {
-      "date": "str",
-      "discography": "str",
-      "duration_ms": "int",
-      "release": "str",
-      "type": "str"
-     }
-    ]
-   },
-   "title": "str",
-   "tracks": [
-    {
-     "date": "str",
-     "discography": "str",
-     "duration_ms": "int",
-     "release": "str",
-     "release_id": "int",
-     "track_title": "null|str"
-    }
-   ]
-  }
- ],
  "GET /api/song/<id>": {
   "aliases": [
    "str"
@@ -420,7 +381,6 @@
   ],
   "features": {
    "lyrics": "bool",
-   "review": "bool",
    "stream": "bool"
   },
   "mode": "str",
@@ -450,11 +410,5 @@
    "supports_range": "bool",
    "url": "str"
   }
- ],
- "POST /api/review": {
-  "action": "str",
-  "decided": "str",
-  "key": "str",
-  "note": "str"
- }
+ ]
 }

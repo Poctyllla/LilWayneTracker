@@ -127,7 +127,7 @@ def main(argv=None):
             print(f"REVIEW '{item['title']}': {item['reason']}")
         print(f"move {len(plan['move'])}, rename {len(plan['rename'])}, review {len(plan['review'])}")
         if not args.apply:
-            print("Dry run; use --apply to change the database (make a backup first).")
+            print("Dry run; use --apply to change the database (back up first: python database.py --backup <label>).")
             return plan
         with connection:
             for item in plan["move"]:

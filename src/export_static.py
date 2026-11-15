@@ -4,7 +4,7 @@ Writes dist/: the page (web/) and every public route of api_routes.py as a
 JSON file under api/v1/ (api/v1/songs.json, api/v1/songs/<id>.json, ...,
 api/v1/index.json = the overview in "static" mode).  web/api.js reads the
 overview and then those files.  Left out on purpose: the local-only routes
-(streaming of the owner's files, lyrics, the "Needs review" page) and every
+(streaming of the owner's files, lyrics) and every
 fact about the owner's local music library (file marks, counts, ids).
 No audio is ever copied.
 
@@ -53,8 +53,8 @@ def export(out, connection):
         shutil.rmtree(out)
     shutil.copytree(WEB_FOLDER, out)
     # Every public route of api_routes.py, once per id; local-only routes (the owner's
-    # files, lyrics, review) are never written.  "files" counts become 0 in write().
-    context = {"mode": "static", "profile": tracker_server.artist_profile, "decisions": lambda: None}
+    # files, lyrics) are never written.  "files" counts become 0 in write().
+    context = {"mode": "static", "profile": tracker_server.artist_profile}
     written = {}
     for route in api_routes.ROUTES:
         if route.local_only or route.kind != "json":

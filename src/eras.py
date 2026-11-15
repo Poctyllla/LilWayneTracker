@@ -286,7 +286,7 @@ def main(argv=None):
         print(f"Without era (no usable date or period crosses a boundary): {len(unassigned)} "
               f"{ {k: sum(1 for r in unassigned if status.get(r) == k) for k in ('released', 'leaked', 'unreleased')} }")
         if not args.apply:
-            print("Dry run; use --apply to change the database (make a backup first).")
+            print("Dry run; use --apply to change the database (back up first: python database.py --backup <label>).")
             return eras, plan
         with connection:
             apply(connection, eras, plan)

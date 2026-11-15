@@ -214,7 +214,7 @@ def main(argv=None):
         print(f"Official releases: {len(official)}; to look up: {len(todo)}; library releases without cover: "
               f"{len(library)}")
         if not args.apply:
-            print("Dry run; use --apply to download covers and store links (make a backup first).")
+            print("Dry run; use --apply to download covers and store links (back up first: python database.py --backup <label>).")
             return
         COVERS_FOLDER.mkdir(parents=True, exist_ok=True)
         covers = links_added = 0

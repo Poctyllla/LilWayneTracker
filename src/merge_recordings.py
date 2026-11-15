@@ -231,7 +231,7 @@ def main(argv=None):
             print("Nothing to merge.")
             return
         if not args.apply:
-            print("Dry run; use --apply to merge (make a backup first).")
+            print("Dry run; use --apply to merge (back up first: python database.py --backup <label>).")
             return
         with connection:
             for keep_id, drop_id, _ in same:

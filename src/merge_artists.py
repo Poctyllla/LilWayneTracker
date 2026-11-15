@@ -127,7 +127,7 @@ def main(argv=None):
             print(f"{name}  <-  {', '.join(n for _i, n in drops)}")
         print(f"{len(merges)} people, {sum(len(d) for _k, _n, d in merges)} duplicate artists")
         if not args.apply:
-            print("Dry run; use --apply to join them (make a backup first).")
+            print("Dry run; use --apply to join them (back up first: python database.py --backup <label>).")
             return
         with connection:
             apply(connection, merges)

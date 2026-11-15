@@ -108,9 +108,6 @@ function plural(n, word) {
 }
 // The published static copy (export_static.py) reads api/<path>.json files instead of the server.
 // getJSON, API.features and STATIC come from api.js (mode told by GET /api/v1/).
-API_READY.then(() => {
-  if (!API.features.review) document.querySelectorAll('[data-tab="review"]').forEach((el) => el.remove());
-}).catch(() => {});
 
 /* ---------- songs ---------- */
 
@@ -1119,94 +1116,10 @@ function exportCsv() {
 }
 $("export-csv").addEventListener("click", exportCsv);
 
-/* ---------- review ---------- */
-
-function candidateCard(c, button) {
-  const tracks = c.tracks.map((t) => `${esc(t.release)} (${esc(t.date || "?")}${t.discography === "unofficial" ? ", bootleg" : ""})`
-    + `${t.duration_ms ? ` ${duration(t.duration_ms)}` : ""}${t.type && t.type !== "album" ? ` [${esc(t.type)}]` : ""}`).join("; ");
-  return `<div class="candidate">
-    <div><a href="#/song/${c.id}"><strong>${esc(c.title)}</strong></a> <span class="muted">#${c.id} · ${esc(c.artist)}</span> ${badge(c.status)}</div>
-    ${c.artists.length ? `<div class="track">Credited: ${esc(c.artists.join(", "))}</div>` : ""}
-    <div class="track">${tracks || "no release"}</div>
-    ${button}</div>`;
-}
-
-function reviewCard(item) {
-  const key = esc(item.key);
-  if (item.kind === "guest") {
-    const facts = [
-      item.lengths.length ? `MusicBrainz length ${item.lengths.map(duration).join(", ")}` : "",
-      item.genius_albums.length ? `Genius album: ${esc(item.genius_albums.join(", "))}` : "",
-      item.hq_projects.length ? `HQ project: ${esc(item.hq_projects.join(", "))}` : "",
-      `sources: ${esc(item.sources)}`].filter(Boolean).join(" · ");
-    return `<div class="review-card" data-key="${key}">
-      <div class="review-q">Is <strong>${esc(item.title)}</strong> by <strong>${esc(item.main_artist)}</strong> one of these songs?</div>
-      <div class="track">${facts}</div>
-      ${serviceLinks(item.links)}
-      ${item.candidates.map((c) => candidateCard(c,
-        `<button class="act" data-action="guest_same" data-recording="${c.id}">Same song</button>`)).join("")}
-      <div class="actions"><button class="act" data-action="guest_different">Different song — add as guest appearance</button>
-        <button class="act ghost" data-action="skip">Skip</button></div></div>`;
-  }
-  if (item.kind === "spread") {
-    const tracks = item.tracks.map((t) => `<div class="track">${esc(t.release)} (${esc(t.date || "?")}${t.discography === "unofficial"
-      ? ", bootleg" : ""}) ${duration(t.duration_ms)}${t.track_title && t.track_title !== item.title ? ` “${esc(t.track_title)}”` : ""}
-      ${item.early_releases.includes(t.release_id) ? `<span class="tag">earlier bootleg</span>` : ""}</div>`).join("");
-    return `<div class="review-card" data-key="${key}">
-      <div class="review-q">Is <a href="#/song/${item.recording.id}"><strong>${esc(item.title)}</strong></a> on these releases
-        one song? The bootleg copy is years older than the official release.</div>
-      ${tracks}
-      <div class="actions"><button class="act ghost" data-action="skip">Same song</button>
-        <button class="act" data-action="split_off">Different songs — split the earlier bootleg off</button></div></div>`;
-  }
-  return `<div class="review-card" data-key="${key}">
-    <div class="review-q"><strong>${esc(item.title)}</strong> — a ${esc(VERSION_TYPES[item.version_type] || item.version_type)}
-      version (“${esc(item.version_name)}”). Which song is it a version of?</div>
-    ${item.recording ? candidateCard(item.recording, "") : ""}
-    ${item.candidates.map((c) => candidateCard(c,
-      `<button class="act" data-action="make_version" data-of="${c.id}">Version of this song</button>`)).join("")}
-    <div class="actions"><button class="act" data-action="keep_separate">None — keep it as its own song</button>
-      <button class="act ghost" data-action="skip">Skip</button></div></div>`;
-}
-
-function renderReview() {
-  const kind = $("review-kind").value;
-  const items = (state.review || []).filter((i) => !kind || i.kind === kind);
-  if ($("review-count")) $("review-count").textContent = state.review ? `(${state.review.length})` : "";
-  $("review-list").innerHTML = items.map(reviewCard).join("") || `<p class="muted">Nothing to review.</p>`;
-}
-
-async function loadReview() {
-  state.review = await getJSON("/api/v1/review");
-  renderReview();
-}
-
-$("review-kind").addEventListener("change", renderReview);
-$("review-list").addEventListener("click", async (event) => {
-  const button = event.target.closest("button.act");
-  if (!button) return;
-  const card = button.closest(".review-card");
-  const decision = { key: card.dataset.key, action: button.dataset.action };
-  if (button.dataset.recording) decision.recording = Number(button.dataset.recording);
-  if (button.dataset.of) decision.of = Number(button.dataset.of);
-  card.querySelectorAll("button").forEach((b) => { b.disabled = true; });
-  const response = await fetch("/api/v1/review", { method: "POST", headers: { "Content-Type": "application/json" },
-                                                body: JSON.stringify(decision) });
-  if (response.ok) {
-    state.review = state.review.filter((i) => i.key !== decision.key);
-    card.outerHTML = `<p class="muted saved">Saved: ${esc(decision.action.replace(/_/g, " "))} — ${esc(decision.key.split(":")[1])}</p>`;
-    if ($("review-count")) $("review-count").textContent = `(${state.review.length})`;
-  } else {
-    const error = await response.json().catch(() => ({}));
-    card.querySelectorAll("button").forEach((b) => { b.disabled = false; });
-    alert(`Not saved: ${error.error || response.status}`);
-  }
-});
-
 /* ---------- routing (#/songs, #/song/12, #/release/8, #/artist/45 ...) ---------- */
 
 const SECTION_NAMES = { about: "About Lil Wayne", songs: "Songs", eras: "Eras", timeline: "Timeline", releases: "Releases",
-                        people: "People", stats: "Statistics", review: "Needs review" };
+                        people: "People", stats: "Statistics" };
 
 function setDrawer(open) {
   $("drawer").hidden = !open;
@@ -1223,7 +1136,6 @@ function showTab(name) {
   if (name === "stats" && !state.statsLoaded) renderStats().catch((e) => { $("stats").textContent = e.message; });
   if (name === "about" && !state.aboutLoaded) renderAbout().catch((e) => { $("about").textContent = e.message; });
   if (name === "timeline" && !state.timeline) renderTimeline().catch((e) => { $("timeline").textContent = e.message; });
-  if (name === "review" && !state.review) loadReview().catch((e) => { $("review-list").textContent = e.message; });
 }
 
 async function route() {
@@ -1625,7 +1537,6 @@ const NAV_ICONS = {
   releases: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 14.5a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9zm0-5.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2z",
   people: "M16 11a3 3 0 1 0-3-3 3 3 0 0 0 3 3zm-8 0a3 3 0 1 0-3-3 3 3 0 0 0 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13zm8 0c-.29 0-.62.02-.97.05A4.22 4.22 0 0 1 17 16.5V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z",
   stats: "M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z",
-  review: "M14.4 6 14 4H5v17h2v-7h5.6l.4 2h7V6z",
   about: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-6h2zm0-8h-2V7h2z",
   appearance: "M12 3a9 9 0 0 0 0 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4.42-4.03-8-9-8zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z",
   player: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-2 14.5v-9l6 4.5-6 4.5z",

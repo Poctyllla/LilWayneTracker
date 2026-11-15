@@ -1,12 +1,47 @@
 
+"""The SQLite schema (initialize_database) and database backups.
+
+    python database.py                  # create / update the tables
+    python database.py --backup LABEL   # copy to data/backups/ (the 3 newest are kept)
+"""
+
 import sqlite3
+import sys
+import time
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATABASE_PATH = PROJECT_ROOT / "data" / "lilwayne.db"
 
+BACKUP_FOLDER = PROJECT_ROOT / "data" / "backups"
+KEEP_BACKUPS = 3
+
 DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+
+def backup(label="manual", database_path=None, folder=None, keep=KEEP_BACKUPS):
+    """Copy the database (SQLite backup API) to <folder>/lilwayne_<time>_<label>.db,
+    check the copy and keep only the `keep` newest backups.  Returns the path."""
+    folder = Path(folder or BACKUP_FOLDER)
+    folder.mkdir(parents=True, exist_ok=True)
+    label = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in label)
+    target = folder / f"lilwayne_{time.strftime('%Y%m%d_%H%M%S')}_{label}.db"
+    source = sqlite3.connect(database_path or DATABASE_PATH)
+    copy = sqlite3.connect(target)
+    try:
+        with copy:
+            source.backup(copy)
+        result = copy.execute("PRAGMA integrity_check").fetchone()[0]
+    finally:
+        copy.close()
+        source.close()
+    if result != "ok":
+        target.unlink()
+        raise RuntimeError(f"Backup failed the integrity check: {result}")
+    for old in sorted(folder.glob("lilwayne_*.db"))[:-keep]:
+        old.unlink()
+    return target
 
 
 def get_connection():
@@ -443,6 +478,9 @@ def initialize_database():
 
 
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["--backup"]:
+        print(f"Backup: {backup(sys.argv[2] if len(sys.argv) > 2 else 'manual')}")
+        sys.exit()
     initialize_database()
 
     print("Database initialized successfully!")

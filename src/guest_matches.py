@@ -199,7 +199,7 @@ def main(argv=None):
         actions, skipped = guest_appearances.plan({"songs": different}, connection)
         print(f"Different songs to add as guest songs: {len(actions)}; skipped {skipped}")
         if not args.apply:
-            print("Dry run; use --apply to change the database (make a backup first).")
+            print("Dry run; use --apply to change the database (back up first: python database.py --backup <label>).")
             return results
         with connection:
             for song, recording_id in same:

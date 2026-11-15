@@ -276,7 +276,7 @@ def main(argv=None):
         for recording_id, alias, source, note, recording_title in aliases.values():
             print(f"  {recording_title!r}: also {alias!r} ({source})")
         if not args.apply:
-            print("Dry run; use --apply to store the links (make a backup first).")
+            print("Dry run; use --apply to store the links (back up first: python database.py --backup <label>).")
             return
         with connection:
             for release_id, name, url, source in release_links:

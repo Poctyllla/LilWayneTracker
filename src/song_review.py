@@ -268,7 +268,7 @@ def main(argv=None):
             print(f"{len(errors)} decision(s) cannot be applied; nothing changed.")
             return planned
         if not args.apply:
-            print("Dry run; use --apply to change the database (make a backup first).")
+            print("Dry run; use --apply to change the database (back up first: python database.py --backup <label>).")
             return planned
         with connection:
             apply(connection, planned)

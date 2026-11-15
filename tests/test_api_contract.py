@@ -32,7 +32,6 @@ sys.path.insert(0, str(SRC_DIR))
 import database
 import genius_details
 import lyrics_source
-import review_queue
 import api_routes
 import tracker_data
 import tracker_server
@@ -141,7 +140,6 @@ class ApiContractTests(unittest.TestCase):
             mock.patch.object(tracker_server, "PROFILE_PATH", profile),
             mock.patch.object(tracker_data, "ARTIST_IMAGES_PATH", folder / "artist_images.json"),  # none: no local data
             mock.patch.object(tracker_data, "SONG_IMAGES_PATH", folder / "song_images.json"),
-            mock.patch.object(review_queue, "EXPORTS_FOLDER", folder / "exports"),
             mock.patch.object(genius_details, "load_cache", return_value={}),
             # LRCLIB answer without the network (urllib.request itself is shared with this test's requests)
             mock.patch.object(lyrics_source, "lookup", lambda connection, version_id, _real=lyrics_source.lookup:
@@ -183,7 +181,7 @@ class ApiContractTests(unittest.TestCase):
             "/api/releases": None, "/api/release/1": "/api/release/<id>", f"/api/artist/{ids['producer']}": "/api/artist/<id>",
             "/api/people": None, "/api/era/1": "/api/era/<id>", "/api/stats": None, "/api/profile": None,
             "/api/timeline": None, "/api/on-this-day/06-10": "/api/on-this-day/<MM-DD>",
-            f"/api/lyrics/{ids['album']}": "/api/lyrics/<version id>", "/api/review": None,
+            f"/api/lyrics/{ids['album']}": "/api/lyrics/<version id>",
         }
 
     def v1_paths(self):
@@ -196,18 +194,13 @@ class ApiContractTests(unittest.TestCase):
             f"/api/v1/artists/{ids['producer']}": f"/api/artist/{ids['producer']}", "/api/v1/eras/1": "/api/era/1",
             "/api/v1/stats": "/api/stats", "/api/v1/profile": "/api/profile", "/api/v1/timeline": "/api/timeline",
             "/api/v1/on-this-day/06-10": "/api/on-this-day/06-10",
-            f"/api/v1/lyrics/{ids['album']}": f"/api/lyrics/{ids['album']}", "/api/v1/review": "/api/review",
+            f"/api/v1/lyrics/{ids['album']}": f"/api/lyrics/{ids['album']}",
         }
 
     def current_contract(self):
         contract = {}
         for path, name in self.json_paths().items():
             contract[f"GET {name or path}"] = shape(self.get_json(path))
-        items = self.get_json("/api/review")
-        decision = {"key": items[0]["key"], "action": "skip", "note": "contract test"}
-        status, _headers, body = self.request("/api/review", json.dumps(decision).encode(),
-                                              {"Content-Type": "application/json", "Origin": self.base})
-        contract["POST /api/review"] = shape(json.loads(body))
         contract["GET /api/v1/"] = shape(self.get_json("/api/v1/"))
         contract["GET /api/v1/eras"] = shape(self.get_json("/api/v1/eras"))
         contract["GET /api/v1/versions/<id>/sources"] = shape(self.get_json(f"/api/v1/versions/{self.ids['album']}/sources"))
@@ -236,14 +229,14 @@ class ApiContractTests(unittest.TestCase):
     def test_overview(self):
         overview = self.get_json("/api/v1")
         self.assertEqual((overview["version"], overview["mode"]), ("1", "local"))
-        self.assertEqual(overview["features"], {"stream": True, "lyrics": True, "review": True})
+        self.assertEqual(overview["features"], {"stream": True, "lyrics": True})
         self.assertEqual({e["name"] for e in overview["endpoints"]}, set(api_routes.BY_NAME))
         connection = tracker_data.connect(self.path)
         try:
             static = api_routes.overview(connection, {"mode": "static"})
         finally:
             connection.close()
-        self.assertEqual(static["features"], {"stream": False, "lyrics": False, "review": False})
+        self.assertEqual(static["features"], {"stream": False, "lyrics": False})
         self.assertFalse(any(e["local_only"] for e in static["endpoints"]))
 
     def test_static_file_names(self):
@@ -274,13 +267,6 @@ class ApiContractTests(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as error:
             self.request("/api/v1/versions/99999/sources")
         self.assertEqual(error.exception.code, 404)
-
-    def test_post_review_on_v1(self):
-        items = self.get_json("/api/v1/review")
-        with self.assertRaises(urllib.error.HTTPError) as error:  # same checks as the old path
-            self.request("/api/v1/review", b"{}", {"Content-Type": "text/plain"})
-        self.assertEqual(error.exception.code, 415)
-        self.assertIsInstance(items, list)
 
     def test_contract(self):
         contract = self.current_contract()

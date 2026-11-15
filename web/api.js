@@ -3,15 +3,14 @@
  * The page works in two modes, told by the API itself (GET /api/v1/ overview):
  *   local   the tracker server on 127.0.0.1: every feature
  *   static  the copy written by export_static.py: the same answers as files
- *           (api/v1/<path>.json), no streaming of local files, no lyrics,
- *           no review page (overview.features says so)
+ *           (api/v1/<path>.json), no streaming of local files, no lyrics
  * Loaded before app.js and player.js; they call getJSON("/api/v1/...") and
  * read API.features.
  */
 
 const API = {
   mode: "local",
-  features: { stream: false, lyrics: false, review: false },  // until the overview has answered
+  features: { stream: false, lyrics: false },  // until the overview has answered
   overview: null,
 };
 let STATIC = false;
@@ -30,7 +29,7 @@ async function loadOverview() {
 const API_READY = loadOverview().then((overview) => {
   API.overview = overview;
   API.mode = overview.mode === "static" ? "static" : "local";
-  API.features = { stream: false, lyrics: false, review: false, ...overview.features };
+  API.features = { stream: false, lyrics: false, ...overview.features };
   STATIC = API.mode === "static";
   return overview;
 });

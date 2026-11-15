@@ -139,7 +139,7 @@ def main(argv=None):
             updates.append((summary, url, cover.name if has_cover else None, era["id"]))
             print(f"{era['name']}: cover {'ok' if has_cover else 'missing'}; Wikipedia: {title or 'not found'}")
         if not args.apply:
-            print("Dry run; use --apply to download covers and write the summaries (make a backup first).")
+            print("Dry run; use --apply to download covers and write the summaries (back up first: python database.py --backup <label>).")
             return updates
         with connection:
             for summary, url, cover_file, era_id in updates:

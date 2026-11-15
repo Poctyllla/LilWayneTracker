@@ -119,7 +119,7 @@ def main(argv=None):
         print(f"Credits to add: {len(additions)}; songs without cached details: {missing}")
         print("By role:", dict(sorted(roles.items(), key=lambda x: -x[1])[:15]))
         if not args.apply:
-            print("Dry run; use --apply to change the database (make a backup first).")
+            print("Dry run; use --apply to change the database (back up first: python database.py --backup <label>).")
             return additions
         with connection:
             print(f"Added: {apply(connection, additions)}")

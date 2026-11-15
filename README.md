@@ -46,7 +46,9 @@ pip install -r requirements.txt   # only mutagen (tags of local audio files)
 
 The database is **not part of this repository** (see below). `src/database.py` creates an
 empty schema; the import tools in `src/` fill it (MusicBrainz scan → review queue → release
-group packages → import). Some tools need API keys in environment variables:
+group packages → import). Tools that change the database are dry runs unless given `--apply`;
+`python src/database.py --backup <label>` makes a checked copy in `data/backups/` first (the three
+newest are kept). Some tools need API keys in environment variables:
 
 | Variable | Used for |
 |---|---|
@@ -91,7 +93,7 @@ The tracker serves JSON under `/api/v1/` (all routes are defined once in
 | `eras`, `eras/<id>` | eras; one era with its releases and songs |
 | `on-this-day/<MM-DD>` | releases on that day in earlier years |
 | `versions/<id>/sources` | how a version can be played: official embeds (Spotify, Apple Music) and, locally, a stream |
-| `stream/<file id>`, `lyrics/<version id>`, `review` | local server only |
+| `stream/<file id>`, `lyrics/<version id>` | local server only |
 
 Each playable version carries its sources (`src/audio_providers.py`): Spotify and Apple Music
 track embeds, and, on the local server only, the owner's own files streamed with HTTP range
@@ -101,7 +103,7 @@ requests. The static copy contains only the public routes and public providers.
 
 ```text
 src/     catalogue tools, import / review / verification, tracker server and data queries
-tests/   unit tests (unittest)
+tests/   unit tests by topic (unittest): sources, packages, catalogue, merging, guests, library, web, API contract
 web/     the tracker page (HTML, CSS, plain JavaScript; no build step)
 ```
 
