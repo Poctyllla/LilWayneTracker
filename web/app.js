@@ -1318,7 +1318,7 @@ function videoCard(video) {
   return `<button type="button" class="card video-card" data-video="${esc(video.youtube_id)}">
     <span class="video-thumb"><img src="${esc(videoThumb(video))}" alt="" loading="lazy"><span class="video-play" aria-hidden="true">▶</span></span>
     <span class="card-body"><span class="title">${esc(video.title)}</span>
-      <span class="artist">${esc(video.channel || "")}${video.official ? "" : " · unofficial upload"}</span>
+      <span class="artist">${esc(video.channel || "")}${video.official ? "" : " · unofficial upload"}${noEmbed().has(video.youtube_id) ? " · ↗ YouTube" : ""}</span>
       <span class="artist">${esc(VIDEO_KINDS[video.kind] ? VIDEO_KINDS[video.kind].replace(/s$/, "") : video.kind)}${song ? ` · ${esc(song.title)}` : ""}${video.song_date ? ` · ${esc(video.song_date.slice(0, 4))}` : ""}</span></span></button>`;
 }
 async function renderVideos() {
@@ -1339,18 +1339,72 @@ async function renderVideos() {
   $("video-total").textContent = `${plural(list.length, "video")} · YouTube, played in its privacy-enhanced embed${official ? " · official channels only" : ""}`;
   $("video-grid").innerHTML = list.map(videoCard).join("") || `<p class="muted">No videos.</p>`;
 }
-function openVideo(youtubeId) {
+// Videos whose owner does not allow playback on other sites (remembered in this browser).
+const NO_EMBED_KEY = "lwt-no-embed";
+function noEmbed() { try { return new Set(JSON.parse(localStorage.getItem(NO_EMBED_KEY) || "[]")); } catch (e) { return new Set(); } }
+function markNoEmbed(id) {
+  const ids = noEmbed(); ids.add(id);
+  try { localStorage.setItem(NO_EMBED_KEY, JSON.stringify([...ids])); } catch (e) { /* storage unavailable */ }
+}
+const youtubeUrl = (id) => `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
+// The official YouTube IFrame Player API: it reports why a video cannot play here.
+let youtubeApi = null;
+function loadYoutubeApi() {
+  youtubeApi = youtubeApi || new Promise((resolve, reject) => {
+    window.onYouTubeIframeAPIReady = () => resolve(window.YT);
+    const script = document.createElement("script");
+    script.src = "https://www.youtube.com/iframe_api";
+    script.onerror = () => { youtubeApi = null; reject(new Error("YouTube could not be loaded")); };
+    document.head.appendChild(script);
+  });
+  return youtubeApi;
+}
+let youtubePlayer = null;
+function videoBlocked(video, reason) {
+  markNoEmbed(video.youtube_id);
+  $("video-frame").innerHTML = `<div class="video-blocked"><img src="${esc(videoThumb(video))}" alt="">
+    <div><p>${esc(reason)}</p><a class="act" href="${esc(youtubeUrl(video.youtube_id))}" target="_blank" rel="noopener noreferrer">▶ Watch on YouTube</a></div></div>`;
+}
+async function openVideo(youtubeId) {
   const video = (state.videos || []).find((v) => v.youtube_id === youtubeId)
     || (state.song && (state.song.videos || []).find((v) => v.youtube_id === youtubeId));
   if (!video) return;
   if (window.stopAllPlayback) window.stopAllPlayback();  // the music player pauses for the video
-  $("video-frame").innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(video.youtube_id)}?autoplay=1&rel=0"
-    title="${esc(video.title)}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`;
   $("video-caption").innerHTML = `<strong>${esc(video.title)}</strong><br><span class="muted">${esc(video.channel || "")}${video.official ? "" : " · unofficial upload"}</span>
-    ${video.songs.map((s) => `<a href="#/song/${s.id}">${esc(s.title)}</a>`).join(" · ")}`;
+    ${video.songs.map((s) => `<a href="#/song/${s.id}">${esc(s.title)}</a>`).join(" · ")}
+    · <a href="${esc(youtubeUrl(video.youtube_id))}" target="_blank" rel="noopener noreferrer">Watch on YouTube ↗</a>`;
   $("video-dialog").showModal();
+  if (noEmbed().has(video.youtube_id)) {
+    videoBlocked(video, "The owner of this video allows it to be played on YouTube only.");
+    return;
+  }
+  $("video-frame").innerHTML = `<div id="video-player"></div>`;
+  try {
+    const YT = await loadYoutubeApi();
+    if (!$("video-dialog").open) return;
+    youtubePlayer = new YT.Player("video-player", {
+      host: "https://www.youtube-nocookie.com", videoId: video.youtube_id, width: "100%", height: "100%",
+      playerVars: { autoplay: 1, rel: 0, playsinline: 1, origin: location.origin },
+      events: {
+        onError: (event) => {  // 101 / 150: not allowed on other sites; 100: removed; 153: no referrer
+          const reason = event.data === 100 ? "This video is no longer on YouTube."
+            : [101, 150, 153].includes(event.data) ? "The owner of this video allows it to be played on YouTube only."
+              : "YouTube could not play this video here.";
+          if (event.data !== 100) videoBlocked(video, reason);
+          else $("video-frame").innerHTML = `<div class="video-blocked"><p>${esc(reason)}</p></div>`;
+        },
+      },
+    });
+  } catch (error) {
+    videoBlocked(video, error.message);
+  }
 }
-function closeVideo() { $("video-frame").innerHTML = ""; if ($("video-dialog").open) $("video-dialog").close(); }
+function closeVideo() {
+  if (youtubePlayer && youtubePlayer.destroy) { try { youtubePlayer.destroy(); } catch (e) { /* gone */ } }
+  youtubePlayer = null;
+  $("video-frame").innerHTML = "";
+  if ($("video-dialog").open) $("video-dialog").close();
+}
 for (const id of ["video-search", "video-official"]) $(id).addEventListener("input", () => renderVideos());
 for (const id of ["video-kind", "video-era"]) $(id).addEventListener("change", () => renderVideos());
 $("reset-video-filters").addEventListener("click", () => { setChosen("video-kind", []); setChosen("video-era", []); renderVideos(); });
@@ -1359,7 +1413,11 @@ document.addEventListener("click", (event) => {
   if (card) { event.preventDefault(); openVideo(card.dataset.video); }
 });
 $("video-close").addEventListener("click", closeVideo);
-$("video-dialog").addEventListener("close", () => { $("video-frame").innerHTML = ""; });
+$("video-dialog").addEventListener("close", () => {
+  if (youtubePlayer && youtubePlayer.destroy) { try { youtubePlayer.destroy(); } catch (e) { /* gone */ } }
+  youtubePlayer = null;
+  $("video-frame").innerHTML = "";
+});
 $("video-caption").addEventListener("click", (event) => { if (event.target.closest("a")) closeVideo(); });
 
 /* ---------- completeness: how complete and checked the catalogue is ---------- */
