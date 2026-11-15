@@ -481,6 +481,24 @@
    "summary_url": "str"
   }
  ],
+ "GET /api/v1/network": {
+  "groups": [
+   {
+    "group": "str",
+    "people": [
+     {
+      "eras": {
+       "1": "int"
+      },
+      "id": "int",
+      "image": "null",
+      "name": "str",
+      "songs": "int"
+     }
+    ]
+   }
+  ]
+ },
  "GET /api/v1/versions/<id>/sources": [
   {
    "key": "str",

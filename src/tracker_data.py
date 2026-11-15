@@ -326,6 +326,34 @@ def people(connection, limit=300):
              "years": list(span.get(row["id"], ())), "image": images.get(row["id"])} for row in rows]
 
 
+NETWORK_GROUPS = {"artist": ("main_artist", "featured_artist"), "producer": ("producer", "co_producer")}
+
+
+def network(connection, limit=60):
+    """Lil Wayne's collaborators for the network view: per group (artists he made songs
+    with, producers) the people with the most shared songs, overall and per era."""
+    images = artist_images()
+    groups = []
+    for group, roles in NETWORK_GROUPS.items():
+        marks = ",".join("?" * len(roles))
+        counts = {}
+        for artist_id, name, era_id, songs in connection.execute(f"""
+            SELECT a.id, a.name, r.era_id, count(DISTINCT r.id)
+            FROM credits c JOIN artists a ON a.id = c.artist_id
+            LEFT JOIN versions v ON v.id = c.version_id
+            JOIN recordings r ON r.id = COALESCE(c.recording_id, v.recording_id)
+            WHERE c.role IN ({marks}) AND a.name != 'Lil Wayne'
+            GROUP BY a.id, r.era_id""", roles):
+            person = counts.setdefault(artist_id, {"id": artist_id, "name": name, "songs": 0, "eras": {},
+                                                   "image": images.get(artist_id)})
+            person["songs"] += songs
+            if era_id is not None:
+                person["eras"][str(era_id)] = songs
+        top = sorted(counts.values(), key=lambda p: (-p["songs"], p["name"]))[:limit]
+        groups.append({"group": group, "people": top})
+    return {"groups": groups}
+
+
 def song_years(connection):
     """{recording_id: 'YYYY'} -- the year a song first appeared (earliest release,
     else its recording / first-known date)."""

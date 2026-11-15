@@ -759,7 +759,7 @@ function personYears(p) {
   return p.years && p.years.length ? (p.years[0] === p.years[1] ? esc(p.years[0]) : `${esc(p.years[0])}–${esc(p.years[1])}`) : "";
 }
 
-const PEOPLE_VIEWS = { grid: "▦ Grid", list: "☰ List" };
+const PEOPLE_VIEWS = { grid: "▦ Grid", list: "☰ List", network: "◎ Network" };
 function renderPeople() {
   saveFilters();
   try { state.peopleView = PEOPLE_VIEWS[state.peopleView] ? state.peopleView : localStorage.getItem("lwt-people-view") || "grid"; }
@@ -776,6 +776,7 @@ function renderPeople() {
         : (a, b) => b.songs - a.songs);
   $("people-total").textContent = `${list.length} ${list.length === 1 ? "person" : "people"} · the most credited people across the catalogue`;
   const roles = (p) => esc(p.roles.slice(0, 3).map(roleName).join(", "));
+  if (state.peopleView === "network") { renderNetwork().catch((e) => { $("people-list").textContent = e.message; }); return; }
   $("people-list").innerHTML = !list.length ? `<p class="muted">Nothing found.</p>` : state.peopleView === "list"
     ? `<div class="people-rows">${list.map((p) => `<a class="person-row" href="#/artist/${p.id}">${avatar(p, "medium")}
         <span class="person-text"><span class="title">${esc(p.name)}</span><span class="muted">${roles(p)}</span></span>
@@ -784,6 +785,45 @@ function renderPeople() {
         <div class="card-body"><div class="title">${esc(p.name)}</div><div class="artist">${roles(p)}</div>
           <div class="artist">${plural(p.songs, "song")}${personYears(p) ? ` · ${personYears(p)}` : ""}</div></div></a>`).join("")}</div>`;
 }
+// Network: Lil Wayne in the middle, the artists he made songs with on the inner ring,
+// producers on the outer ring; a circle's size = shared songs (in the chosen era).
+async function renderNetwork() {
+  state.network = state.network || await getJSON("/api/v1/network");
+  const era = state.networkEra || "";
+  const size = 720, mid = size / 2;
+  const rings = { artist: { r: 205, label: "Artists" }, producer: { r: 320, label: "Producers" } };
+  let nodes = "", lines = "", labels = "";
+  for (const g of state.network.groups) {
+    const ring = rings[g.group];
+    const people = g.people.map((p) => ({ ...p, n: era ? p.eras[era] || 0 : p.songs })).filter((p) => p.n > 0)
+      .sort((a, b) => b.n - a.n).slice(0, g.group === "artist" ? 36 : 44);
+    const max = Math.max(1, ...people.map((p) => p.n));
+    people.forEach((p, i) => {
+      const angle = (i / people.length) * Math.PI * 2 - Math.PI / 2 + (g.group === "producer" ? Math.PI / people.length : 0);
+      const x = mid + ring.r * Math.cos(angle), y = mid + ring.r * Math.sin(angle);
+      const radius = 5 + 17 * Math.sqrt(p.n / max);
+      lines += `<line x1="${mid}" y1="${mid}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" class="net-line net-${g.group}" style="stroke-opacity:${(0.12 + 0.5 * p.n / max).toFixed(2)}"/>`;
+      nodes += `<a href="#/artist/${p.id}" class="net-node net-${g.group}"><title>${esc(p.name)}: ${plural(p.n, "song")}</title>
+        <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${radius.toFixed(1)}"/></a>`;
+      if (i < (g.group === "artist" ? 14 : 12)) {
+        const lx = mid + (ring.r + radius + 8) * Math.cos(angle), ly = mid + (ring.r + radius + 8) * Math.sin(angle);
+        const anchor = Math.cos(angle) > 0.3 ? "start" : Math.cos(angle) < -0.3 ? "end" : "middle";
+        labels += `<text x="${lx.toFixed(1)}" y="${(ly + 4).toFixed(1)}" text-anchor="${anchor}" class="net-label">${esc(p.name)}</text>`;
+      }
+    });
+  }
+  const eraOptions = state.eras.map((e) => `<option value="${e.id}" ${String(e.id) === era ? "selected" : ""}>${esc(eraName(e))}</option>`).join("");
+  $("people-total").textContent = "Lil Wayne's collaborators: artists on the inner ring, producers on the outer ring · circle size = shared songs";
+  $("people-list").innerHTML = `<div class="net-bar"><select id="network-era" aria-label="Era"><option value="">All eras</option>${eraOptions}</select>
+      <span class="net-key"><span class="net-dot net-artist"></span>Artists <span class="net-dot net-producer"></span>Producers</span></div>
+    <div class="net-wrap"><svg viewBox="-60 -20 ${size + 120} ${size + 40}" class="network" role="img" aria-label="Collaboration network">
+      ${lines}${nodes}<circle cx="${mid}" cy="${mid}" r="34" class="net-center"/>
+      <clipPath id="net-clip"><circle cx="${mid}" cy="${mid}" r="32"/></clipPath>
+      <image href="covers/artist.jpg" x="${mid - 32}" y="${mid - 32}" width="64" height="64" clip-path="url(#net-clip)" preserveAspectRatio="xMidYMid slice"/>
+      ${labels}</svg></div>`;
+  $("network-era").addEventListener("change", (event) => { state.networkEra = event.target.value; renderNetwork(); });
+}
+
 $("people-role").addEventListener("change", renderPeople);
 $("people-sort").addEventListener("change", renderPeople);
 $("reset-people-filters").addEventListener("click", () => {
