@@ -69,6 +69,20 @@ def create_app(settings: Settings | None = None, public: bool = False) -> FastAP
             WHERE av.version_id = ? ORDER BY COALESCE(a.bitrate, 0) DESC, a.id""", (version_id,)).fetchall()
         return [d for d in (describe(row) for row in rows) if d["stream_url"]]
 
+    @app.get("/v1/assets/{asset_id}/similar")
+    def similar(asset_id: int):
+        """Other files holding the same recording (audio fingerprints), most similar first."""
+        get_asset(asset_id)
+        rows = connection.execute("""
+            SELECT CASE WHEN asset_a = ? THEN asset_b ELSE asset_a END AS other, score FROM similar_assets
+            WHERE asset_a = ? OR asset_b = ? ORDER BY score DESC""", (asset_id, asset_id, asset_id)).fetchall()
+        result = []
+        for row in rows:
+            other = describe(asset_row(row["other"]))
+            if other["stream_url"]:
+                result.append({**other, "score": row["score"]})
+        return result
+
     @app.get("/v1/assets/{asset_id}/stream")
     def stream(asset_id: int, request: Request):
         row = asset_row(asset_id)

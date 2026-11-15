@@ -2,7 +2,7 @@
 
 A separate service next to Lil Wayne Tracker: its own storage, database and API for
 audio files, linked to the tracker's catalogue by version ids. Stage 1 of the plan:
-the skeleton.
+skeleton, the owner's library (private) and audio fingerprints.
 
 - **Storage** by content (sha256): an identical file is kept once.
 - **Database** (SQLite): assets with technical metadata, rights per asset, links to
@@ -24,10 +24,21 @@ python -m venv .venv
 | `GET /health` | status, mode, number of assets |
 | `GET /v1/assets/<id>` | technical metadata, rights, moderation, catalogue versions |
 | `GET /v1/versions/<version id>/assets` | playable assets of a catalogue version (best first) |
+| `GET /v1/assets/<id>/similar` | other files with the same recording (fingerprints) |
 | `GET /v1/assets/<id>/stream` | the audio, with Range requests for seeking |
 
 Data lives in `audio-service/data/` (not in the repository); `AUDIO_SERVICE_DATA`
 and `AUDIO_SERVICE_PORT` override the folder and the port.
 
-Next stages: import of the owner's library (private), the tracker's player using the
-service, audio fingerprints, accounts and uploads, moderation, public delivery.
+Tools (dry run without `--apply`):
+
+- `python -m audio_service.library_import --apply` copies the tracker's library files into
+  the storage as private assets and rebuilds their links to catalogue versions; the
+  tracker then plays them from the storage.
+- `python -m audio_service.library_move` removes / restores originals (sha256 rechecked).
+- `python -m audio_service.fingerprints --apply` computes Chromaprint fingerprints and
+  finds the same recording in different files. Needs `fpcalc`
+  ([Chromaprint](https://acoustid.org/chromaprint); `winget install --id AcoustID.Chromaprint -e`;
+  or set `FPCALC`).
+
+Next stages: accounts and uploads, moderation, public delivery.

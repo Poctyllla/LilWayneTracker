@@ -182,3 +182,51 @@ class LibraryMoveTests(LibraryImportTests):
             path.unlink()
         self.assertEqual(library_move.restore(self.catalogue, self.settings), (1, 0))
         self.assertEqual((root / "a.mp3").read_bytes(), AUDIO)
+
+
+class FingerprintTests(unittest.TestCase):
+    def setUp(self):
+        import numpy as np
+        rng = np.random.default_rng(7)
+        self.np = np
+        self.song = rng.integers(0, 2**32, 900, dtype=np.uint32)
+        noise = rng.integers(0, 2**32, 900, dtype=np.uint32) & rng.integers(0, 2**32, 900, dtype=np.uint32) \
+            & rng.integers(0, 2**32, 900, dtype=np.uint32)  # about 1 bit in 8 flipped
+        self.reencoded = self.song ^ noise
+        self.other = rng.integers(0, 2**32, 900, dtype=np.uint32)
+
+    def test_similarity(self):
+        from audio_service import fingerprints as f
+        self.assertEqual(f.similarity(self.song, self.song), (1.0, 0))
+        self.assertGreater(f.similarity(self.song, self.reencoded)[0], 0.8)
+        self.assertLess(f.similarity(self.song, self.other)[0], 0.6)
+        score, offset = f.similarity(self.song[5:], self.song)  # starts 5 items later
+        self.assertEqual((score, offset), (1.0, -5))
+        self.assertTrue((f.decode(f.encode(self.song)) == self.song).all())
+
+    def test_pairs_only_of_similar_length_and_classified(self):
+        from audio_service import fingerprints as f
+        items = [(1, 200.0, self.song), (2, 201.0, self.reencoded), (3, 200.5, self.other), (4, 260.0, self.song)]
+        pairs = f.similar_pairs(items)
+        self.assertEqual([(a, b) for a, b, *_ in pairs], [(1, 2)])  # 4 is a minute longer: not compared
+
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        settings = Settings(data_dir=Path(directory.name))
+        connection = db.connect(settings.database_path)
+        db.initialize(connection)
+        with connection:
+            for i, (asset_id, length, fp) in enumerate(items):
+                connection.execute("INSERT INTO assets (id, sha256, size, duration, fingerprint) VALUES (?, ?, 1, ?, ?)",
+                                   (asset_id, f"{asset_id:064x}", length, f.encode(fp)))
+            connection.executemany("INSERT INTO asset_versions (asset_id, version_id) VALUES (?, ?)",
+                                   [(1, 10), (2, 10), (3, 11), (4, 12)])
+        connection.close()
+        report = f.run(apply=True, settings=settings, progress=lambda *_: None)
+        self.assertEqual((len(report["same_version"]), len(report["different_versions"])), (1, 0))
+        client = TestClient(create_app(settings))
+        try:
+            self.assertEqual([a["id"] for a in client.get("/v1/assets/1/similar").json()], [2])
+            self.assertEqual(client.get("/v1/assets/3/similar").json(), [])
+        finally:
+            client.app.state.connection.close()

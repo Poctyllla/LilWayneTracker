@@ -3,7 +3,7 @@
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -52,6 +52,15 @@ CREATE TABLE IF NOT EXISTS moderation (
     note TEXT,
     actor TEXT,
     at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+
+-- the same recording in different files (fingerprints.py): suggestions only
+CREATE TABLE IF NOT EXISTS similar_assets (
+    asset_a INTEGER NOT NULL REFERENCES assets(id),
+    asset_b INTEGER NOT NULL REFERENCES assets(id),
+    score REAL NOT NULL,                      -- share of equal fingerprint bits
+    offset INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (asset_a, asset_b)
 );
 
 CREATE INDEX IF NOT EXISTS asset_versions_by_version ON asset_versions(version_id);
