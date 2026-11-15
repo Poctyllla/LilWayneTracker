@@ -377,6 +377,7 @@ async function openSong(id) {
     </div></div>
     <h3>Appears on</h3>${appears}
     ${others.length ? `<h3>Other versions</h3>${compareVersions(song)}${versions}` : ""}
+    ${(song.videos || []).length ? `<h3>Videos</h3><div class="grid video-grid small">${song.videos.map(videoCard).join("")}</div>` : ""}
     ${songHistory(song)}
     <h3>Credits</h3>${credits ? `<dl class="credits">${credits}</dl>` : `<p class="muted">No credits yet.</p>`}
     ${songConnections(song)}
@@ -1262,6 +1263,56 @@ function exportCsv() {
 }
 $("export-csv").addEventListener("click", exportCsv);
 
+/* ---------- videos: YouTube (official embeds, privacy-enhanced mode) ---------- */
+const VIDEO_KINDS = { music_video: "Music videos", performance: "Performances", freestyle: "Freestyles", interview: "Interviews" };
+function videoThumb(video) {
+  return `https://i.ytimg.com/vi/${encodeURIComponent(video.youtube_id)}/hqdefault.jpg`;
+}
+function videoCard(video) {
+  const song = video.songs[0];
+  return `<button type="button" class="card video-card" data-video="${esc(video.youtube_id)}">
+    <span class="video-thumb"><img src="${esc(videoThumb(video))}" alt="" loading="lazy"><span class="video-play" aria-hidden="true">▶</span></span>
+    <span class="card-body"><span class="title">${esc(video.title)}</span>
+      <span class="artist">${esc(video.channel || "")}${video.official ? "" : " · unofficial upload"}</span>
+      <span class="artist">${esc(VIDEO_KINDS[video.kind] ? VIDEO_KINDS[video.kind].replace(/s$/, "") : video.kind)}${song ? ` · ${esc(song.title)}` : ""}${video.song_date ? ` · ${esc(video.song_date.slice(0, 4))}` : ""}</span></span></button>`;
+}
+async function renderVideos() {
+  if (!state.videos) {
+    state.videos = await getJSON("/api/v1/videos");
+    const kinds = [...new Set(state.videos.map((v) => v.kind))];
+    $("video-kind").insertAdjacentHTML("beforeend", kinds.map((k) => `<option value="${esc(k)}">${esc(VIDEO_KINDS[k] || k)}</option>`).join(""));
+    $("video-era").insertAdjacentHTML("beforeend", state.eras.map((e) => `<option value="${e.id}">${esc(eraName(e))}</option>`).join(""));
+  }
+  const query = fold($("video-search").value.trim()), kind = $("video-kind").value, era = $("video-era").value;
+  const official = $("video-official").checked;
+  const list = state.videos.filter((v) => (!official || v.official) && (!kind || v.kind === kind)
+    && (!era || v.songs.some((s) => String(s.era) === era))
+    && (!query || fold([v.title, v.channel, ...v.songs.map((s) => s.title)].join(" ")).includes(query)))
+    .sort((a, b) => (a.song_date || "9999").localeCompare(b.song_date || "9999"));
+  $("video-total").textContent = `${plural(list.length, "video")} · YouTube, played in its privacy-enhanced embed${official ? " · official channels only" : ""}`;
+  $("video-grid").innerHTML = list.map(videoCard).join("") || `<p class="muted">No videos.</p>`;
+}
+function openVideo(youtubeId) {
+  const video = (state.videos || []).find((v) => v.youtube_id === youtubeId)
+    || (state.song && (state.song.videos || []).find((v) => v.youtube_id === youtubeId));
+  if (!video) return;
+  if (window.stopAllPlayback) window.stopAllPlayback();  // the music player pauses for the video
+  $("video-frame").innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(video.youtube_id)}?autoplay=1&rel=0"
+    title="${esc(video.title)}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`;
+  $("video-caption").innerHTML = `<strong>${esc(video.title)}</strong><br><span class="muted">${esc(video.channel || "")}${video.official ? "" : " · unofficial upload"}</span>
+    ${video.songs.map((s) => `<a href="#/song/${s.id}">${esc(s.title)}</a>`).join(" · ")}`;
+  $("video-dialog").showModal();
+}
+function closeVideo() { $("video-frame").innerHTML = ""; if ($("video-dialog").open) $("video-dialog").close(); }
+for (const id of ["video-search", "video-kind", "video-era", "video-official"]) $(id).addEventListener("input", () => renderVideos());
+document.addEventListener("click", (event) => {
+  const card = event.target.closest("[data-video]");
+  if (card) { event.preventDefault(); openVideo(card.dataset.video); }
+});
+$("video-close").addEventListener("click", closeVideo);
+$("video-dialog").addEventListener("close", () => { $("video-frame").innerHTML = ""; });
+$("video-caption").addEventListener("click", (event) => { if (event.target.closest("a")) closeVideo(); });
+
 /* ---------- completeness: how complete and checked the catalogue is ---------- */
 const CHECK_LABELS = { date: "Date", cover: "Cover", musicbrainz: "MusicBrainz", listen: "Listen link",
                        era: "Era", source: "Source", producer: "Producer" };
@@ -1335,7 +1386,7 @@ document.addEventListener("keydown", (event) => {
 /* ---------- routing (#/songs, #/song/12, #/release/8, #/artist/45 ...) ---------- */
 
 const SECTION_NAMES = { about: "About Lil Wayne", songs: "Songs", eras: "Eras", timeline: "Timeline", releases: "Releases",
-                        people: "People", stats: "Statistics", completeness: "Completeness" };
+                        people: "People", videos: "Videos", stats: "Statistics", completeness: "Completeness" };
 
 function setDrawer(open) {
   $("drawer").hidden = !open;
@@ -1351,6 +1402,7 @@ function showTab(name) {
   state.tab = name;
   if (name === "stats" && !state.statsLoaded) renderStats().catch((e) => { $("stats").textContent = e.message; });
   if (name === "completeness") renderCompleteness().catch((e) => { $("completeness").textContent = e.message; });
+  if (name === "videos") renderVideos().catch((e) => { $("video-grid").textContent = e.message; });
   if (name === "about" && !state.aboutLoaded) renderAbout().catch((e) => { $("about").textContent = e.message; });
   if (name === "timeline" && !state.timeline) renderTimeline().catch((e) => { $("timeline").textContent = e.message; });
 }
@@ -1787,6 +1839,7 @@ const NAV_ICONS = {
   people: "M16 11a3 3 0 1 0-3-3 3 3 0 0 0 3 3zm-8 0a3 3 0 1 0-3-3 3 3 0 0 0 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13zm8 0c-.29 0-.62.02-.97.05A4.22 4.22 0 0 1 17 16.5V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z",
   stats: "M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z",
   completeness: "M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z",
+  videos: "M21 6H3a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1zm-11 9V9l5 3z",
   about: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-6h2zm0-8h-2V7h2z",
   appearance: "M12 3a9 9 0 0 0 0 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4.42-4.03-8-9-8zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z",
   player: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-2 14.5v-9l6 4.5-6 4.5z",

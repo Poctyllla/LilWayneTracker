@@ -14,6 +14,7 @@ usage:
     python genius_details.py [--guest-matches exports/guest_matches_<date>.json
                               --guest-survey exports/guest_survey_<date>.json]
     python genius_details.py --relationships   # also refresh cached songs without relationships
+    python genius_details.py --media           # also refresh cached songs without media links (YouTube ...)
     python genius_details.py --albums          # page, date and cover of the albums of cached songs
                                                # (exports/genius_albums.json)
 """
@@ -57,6 +58,8 @@ def song_details(song):
         "writers": artist_names(song.get("writer_artists")),
         "custom_performances": [{"label": p.get("label"), "artists": artist_names(p.get("artists"))}
                                 for p in song.get("custom_performances") or []],
+        "media": [{"provider": m.get("provider"), "type": m.get("type"), "url": m.get("url")}
+                  for m in song.get("media") or [] if m.get("url")],
         "relationships": [{"type": r.get("relationship_type") or r.get("type"),
                            "songs": [{"id": s.get("id"), "title": s.get("title"), "url": s.get("url"),
                                       "artist": (s.get("primary_artist") or {}).get("name")}
@@ -123,6 +126,8 @@ def main(argv=None):
     parser.add_argument("--guest-matches")
     parser.add_argument("--guest-survey")
     parser.add_argument("--albums", action="store_true", help="download the albums of the cached songs")
+    parser.add_argument("--media", action="store_true",
+                        help="download again the cached songs stored before media links (YouTube ...) were kept")
     parser.add_argument("--relationships", action="store_true",
                         help="download again the cached songs stored before relationships were kept")
     args = parser.parse_args(argv)
@@ -136,7 +141,8 @@ def main(argv=None):
         connection.close()
     cache = load_cache()
     todo = [song_id for song_id in ids if song_id not in cache
-            or (args.relationships and "relationships" not in cache[song_id])]
+            or (args.relationships and "relationships" not in cache[song_id])
+            or (args.media and "media" not in cache[song_id])]
     print(f"Genius songs: {len(ids)}; cached {len(ids) - len(todo)}; to download {len(todo)}")
     failed = []
     for index, song_id in enumerate(todo, start=1):

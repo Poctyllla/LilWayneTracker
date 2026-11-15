@@ -124,6 +124,7 @@
   <a class="tab" data-tab="timeline" href="#/timeline">Timeline</a>
   <a class="tab" data-tab="releases" href="#/releases">Releases</a>
   <a class="tab" data-tab="people" href="#/people">People</a>
+  <a class="tab" data-tab="videos" href="#/videos">Videos</a>
   <a class="tab" data-tab="stats" href="#/stats">Statistics</a>
   <a class="tab" data-tab="completeness" href="#/completeness">Completeness</a>
   <a class="tab tab-bottom" data-tab="about" href="#/about">About Lil Wayne</a>
@@ -194,6 +195,23 @@
   <section id="stats-view" hidden>
     <div id="stats"></div>
   </section>
+
+  <section id="videos-view" hidden>
+    <div class="filters video-filters">
+      <input type="search" id="video-search" placeholder="Search videos, songs, channels…" aria-label="Search videos">
+      <select id="video-kind" aria-label="Kind"><option value="">All kinds</option></select>
+      <select id="video-era" aria-label="Era"><option value="">All eras</option></select>
+      <label class="check-label"><input type="checkbox" id="video-official" checked> Official channels only</label>
+    </div>
+    <p class="muted" id="video-total"></p>
+    <div id="video-grid" class="grid video-grid"></div>
+  </section>
+
+  <dialog id="video-dialog" class="video-dialog" aria-label="Video">
+    <div class="video-frame" id="video-frame"></div>
+    <div class="video-meta"><div id="video-caption"></div>
+      <button type="button" class="act ghost" id="video-close">Close</button></div>
+  </dialog>
 
   <section id="completeness-view" hidden>
     <div id="completeness"></div>

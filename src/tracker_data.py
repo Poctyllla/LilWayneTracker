@@ -443,6 +443,7 @@ def song(connection, recording_id):
     result["former"] = former(result)
     result["connections"] = song_connections(connection, result)
     result["genius_album"] = genius_album(result) if not any(v["tracks"] for v in result["versions"]) else None
+    result["videos"] = videos(connection, recording_id)
     result["cover_file"] = song_covers_for(connection, recording_id)
     album = song_albums(connection).get(recording_id) if head["appearance"] != "guest" else None
     result["credit"] = release_credits(connection).get(album["id"]) if album else None
@@ -666,6 +667,30 @@ def era(connection, era_id):
             WHERE r.era_id = ? AND c.role = ? AND a.name != 'Lil Wayne'
             GROUP BY a.id ORDER BY songs DESC, a.name LIMIT 8""", (era_id, role))]
     result["producers"], result["featured"] = top("producer"), top("featured_artist")
+    return result
+
+
+def videos(connection, recording_id=None):
+    """YouTube videos (videos.py) with their songs; one song's videos with recording_id."""
+    if not has_table(connection, "videos"):
+        return []
+    where, params = ("WHERE v.id IN (SELECT video_id FROM video_recordings WHERE recording_id = ?)", (recording_id,)) \
+        if recording_id else ("", ())
+    result = []
+    for row in connection.execute(f"""
+            SELECT v.id, v.youtube_id, v.title, v.channel, v.kind, v.event, v.date, v.official
+            FROM videos v {where} ORDER BY v.official DESC, v.id""", params):
+        video = dict(row)
+        video["official"] = bool(video["official"])
+        video["songs"] = [dict(s) for s in connection.execute("""
+            SELECT r.id, r.title, r.era_id AS era, a.name AS artist,
+                   (SELECT min(x.release_date) FROM versions vv JOIN release_tracks t ON t.version_id = vv.id
+                    JOIN releases x ON x.id = t.release_id WHERE vv.recording_id = r.id
+                    AND COALESCE(x.release_date, '') != '') AS song_date
+            FROM video_recordings vr JOIN recordings r ON r.id = vr.recording_id JOIN artists a ON a.id = r.artist_id
+            WHERE vr.video_id = ? ORDER BY r.title""", (video["id"],))]
+        video["song_date"] = min((s["song_date"] for s in video["songs"] if s["song_date"]), default=None)
+        result.append(video)
     return result
 
 

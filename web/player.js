@@ -667,3 +667,6 @@ $("pl-lyrics-open").innerHTML = icon("lyrics");
 renderModes();
 applyVolume();
 renderProgress();
+
+// Opening a video (Videos tab) pauses the music (app.js openVideo).
+window.stopAllPlayback = () => { if (player.index >= 0 && !player.paused) toggle(); };

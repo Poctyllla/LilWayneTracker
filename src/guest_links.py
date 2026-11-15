@@ -35,6 +35,7 @@ from pathlib import Path
 import spotify_source
 from import_release import DATABASE_PATH
 from streaming_search import itunes_get, letters
+from version_types import split_version
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CACHE_PATH = PROJECT_ROOT / "exports" / "guest_links.json"
@@ -77,13 +78,24 @@ def plain(text):
     return letters(NOTES.sub("", re.sub(r"\s+-\s+.*$", "", str(text or ""))))
 
 
+def same_version(title, name):
+    """A guest song that is a version ("Neva Get Enuf (a cappella)", "(Tha Spa mix)") takes
+    only a track whose title names that version too; the plain song any plain track."""
+    _base, kind, marker = split_version(title)
+    if kind is not None:
+        return letters(marker or "") in letters(name)
+    # the plain song: not a track that is itself a version ("MFN Right - Remix", "Loyal (West Coast Version)")
+    name = re.sub(r"\s*[(\[](?:feat|ft|with)\.?\s[^)\]]*[)\]]", "", name, flags=re.IGNORECASE)
+    return split_version(re.sub(r"\s+-\s+(.*)$", r" (\1)", name))[1] is None
+
+
 def best_track(tracks, title, artist):
     """The accepted Apple track for a guest song, or None (explicit editions first)."""
     wanted_title, wanted_artist = plain(title), letters(artist)
     good = []
     for track in tracks:
         name, by = track.get("trackName") or "", track.get("artistName") or ""
-        if plain(name) != wanted_title or wanted_artist not in letters(by):
+        if plain(name) != wanted_title or wanted_artist not in letters(by) or not same_version(title, name):
             continue
         if not (WAYNE.search(by) or WAYNE.search(name)) or track.get("trackExplicitness") == "cleaned":
             continue
@@ -104,7 +116,7 @@ def spotify_best(items, title, artist):
     for item in items:
         names = [a.get("name") or "" for a in item.get("artists") or []]
         name = item.get("name") or ""
-        if plain(name) != wanted_title or not names or letters(names[0]) != wanted_artist:
+        if plain(name) != wanted_title or not names or letters(names[0]) != wanted_artist or not same_version(title, name):
             continue
         if not any(WAYNE.fullmatch(n) for n in names) or (UNWANTED.search(name) and not UNWANTED.search(title)):
             continue

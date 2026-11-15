@@ -258,6 +258,31 @@ def initialize_database():
             )
         """)
 
+        # 9.6. Videos on YouTube (official embeds only; nothing is downloaded):
+        # music videos, freestyles, award show / concert performances, interviews.
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS videos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                youtube_id TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL,
+                channel TEXT,
+                kind TEXT NOT NULL,          -- music_video, freestyle, performance, interview, visualizer
+                event TEXT,                  -- "BET Awards 2008", "Hot 97" ...
+                date TEXT,
+                official INTEGER NOT NULL DEFAULT 0,  -- uploaded by an official channel
+                source TEXT                  -- Wikidata, Genius, YouTube API
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS video_recordings (
+                video_id INTEGER NOT NULL,
+                recording_id INTEGER NOT NULL,
+                PRIMARY KEY (video_id, recording_id),
+                FOREIGN KEY (video_id) REFERENCES videos(id),
+                FOREIGN KEY (recording_id) REFERENCES recordings(id)
+            )
+        """)
+
         # 10. Database migrations
         migrations = {
             "releases": {

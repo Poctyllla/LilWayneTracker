@@ -261,7 +261,8 @@
     "version_name": "str",
     "version_type": "str"
    }
-  ]
+  ],
+  "videos": []
  },
  "GET /api/songs": [
   {
@@ -510,5 +511,6 @@
    "supports_range": "bool",
    "url": "str"
   }
- ]
+ ],
+ "GET /api/v1/videos": []
 }
