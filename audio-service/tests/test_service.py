@@ -168,3 +168,17 @@ class LibraryImportTests(unittest.TestCase):
             (Path(self.directory.name) / name).unlink()
         report = self.run_import()  # nothing lost: everything is already stored
         self.assertEqual((report["already_stored"], report["linked"], report["missing"]), (2, 2, []))
+
+
+class LibraryMoveTests(LibraryImportTests):
+    def test_move_and_restore(self):
+        from audio_service import library_move
+        self.run_import()
+        root = Path(self.directory.name)
+        (root / "b.mp3").write_bytes(b"changed after the import")  # not stored: must be kept
+        _, removable, not_stored, _ = library_move.plan(self.catalogue, self.settings)
+        self.assertEqual(([p.name for p, _ in removable], [p.name for p, _ in not_stored]), (["a.mp3"], ["b.mp3"]))
+        for path, _ in removable:
+            path.unlink()
+        self.assertEqual(library_move.restore(self.catalogue, self.settings), (1, 0))
+        self.assertEqual((root / "a.mp3").read_bytes(), AUDIO)
