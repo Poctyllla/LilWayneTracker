@@ -46,6 +46,7 @@ from pathlib import Path
 
 from import_release import DATABASE_PATH
 from streaming_search import letters
+from duplicate_guard import is_generic_title
 from titles import normalized_title
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -61,6 +62,9 @@ NOT_A_PERFORMANCE = re.compile(r"react|reaction|interview|\btalks?\b|speaks|snub
                                r"explains|breaks down|recap|highlights|news|podcast|documentary|behind the scenes|"
                                r"compilation|best moments|funniest|#shorts|\bwhy\b|chose|didn.?t|\bvs\b|ranking|\btop \d|premiere",
                                re.IGNORECASE)
+# words of video titles that are also song titles in the catalogue -- never a song match
+TITLE_WORDS = {normalized_title(w) for w in ("Official", "Video", "Music Video", "Live", "Remix", "Audio", "Lyrics",
+                                             "Freestyle", "Performance", "Concert", "Interview", "Exclusive", "Premiere")}
 WAYNE_CHANNELS = {letters(n) for n in ("Lil Wayne", "LilWayneVEVO", "Young Money", "YoungMoneyVEVO", "Cash Money Records")}
 FREESTYLE = re.compile(r"freestyle|cypher", re.IGNORECASE)
 # (query, kind, event) -- the event names the performance ("BET Awards"); None: from the title
@@ -290,11 +294,13 @@ def plan(connection, oembed, use_wikidata=True):
     # YouTube search: performances and freestyles; songs named in the video title are linked
     own_titles = sorted(((normalized_title(t), rid) for rid, t in connection.execute(
         "SELECT id, title FROM recordings WHERE appearance IS NULL")
-        if len(normalized_title(t)) >= 5), key=lambda x: -len(x[0]))
+        if len(normalized_title(t)) >= 5 and not is_generic_title(t) and normalized_title(t) not in TITLE_WORDS),
+        key=lambda x: -len(x[0]))
     for query, kind, event, item in youtube_search():
         if not WAYNE_IN_TITLE.search(item["title"]):
             continue
-        title_key = " " + normalized_title(item["title"]) + " "
+        # brackets ("(Official Video)", "[Live]") are not song titles
+        title_key = " " + normalized_title(re.sub(r"[(\[][^)\]]*[)\]]", " ", item["title"])) + " "
         year = re.search(r"\b(19[89]\d|20[0-3]\d)\b", item["title"])
         detail = f"{event} {year.group(1)}" if event and year else event
         songs = []
