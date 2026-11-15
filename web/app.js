@@ -114,12 +114,13 @@ function plural(n, word) {
 
 function filteredSongs() {
   const query = fold($("search").value.trim());
-  const era = $("era").value, kind = $("kind").value, vtype = $("vtype").value;
+  const eras = chosen("era"), kind = $("kind").value, vtypes = chosen("vtype");
+  const wanted = vtypes.has("wanted"), types = [...vtypes].filter((t) => t !== "wanted");
   return state.songs.filter((song) => {
     if (kind === "own" && song.guest) return false;
     if (kind === "guest" && !song.guest) return false;
-    if (era && String(song.era ?? "none") !== era) return false;
-    if (vtype === "wanted" ? !song.wanted : vtype && !song.types.includes(vtype)) return false;
+    if (eras.size && !eras.has(String(song.era ?? "none"))) return false;
+    if (vtypes.size && !((wanted && song.wanted) || types.some((t) => song.types.includes(t)))) return false;
     if (query) {
       const haystack = fold([song.title, song.artist, song.credit || "", ...song.aliases, ...song.producers].join(" "));
       if (!haystack.includes(query)) return false;
@@ -214,7 +215,7 @@ const FILTER_FIELDS = ["search", "era", "kind", "vtype", "sort", "release-search
                        "people-search", "people-role", "people-sort"];
 function saveFilters() {
   if (!state.filtersRestored) return;  // nothing is saved before the remembered ones are back
-  const saved = Object.fromEntries(FILTER_FIELDS.map((id) => [id, $(id).value]));
+  const saved = Object.fromEntries(FILTER_FIELDS.map((id) => [id, $(id).multiple ? [...chosen(id)] : $(id).value]));
   saved.statuses = [...state.statuses];
   try { localStorage.setItem(FILTERS_KEY, JSON.stringify(saved)); } catch (e) { /* storage unavailable */ }
 }
@@ -223,6 +224,12 @@ function restoreFilters() {
   try { saved = JSON.parse(localStorage.getItem(FILTERS_KEY)) || {}; } catch (e) { saved = {}; }
   for (const id of FILTER_FIELDS) {
     const field = $(id);
+    if (field.multiple && (Array.isArray(saved[id]) || typeof saved[id] === "string")) {  // a single value from older visits too
+      const offered = new Set([...field.options].map((o) => o.value));
+      setChosen(id, [].concat(saved[id]).filter((v) => v && offered.has(v)));
+      if (id === "discography" && !chosen(id).size) setChosen(id, ["official"]);
+      continue;
+    }
     if (typeof saved[id] !== "string") continue;
     // a select only takes a value it still offers (an era or type may be gone)
     if (field.tagName !== "SELECT" || [...field.options].some((o) => o.value === saved[id])) field.value = saved[id];
@@ -237,8 +244,8 @@ function restoreFilters() {
 
 // With a version type chosen the list shows those versions themselves ("Hustler Musik (Live In Los
 // Angeles)"): their own date, status and playable source; the link still opens the song.
-function versionEntries(songs, type) {
-  return songs.flatMap((song) => (song.variants || []).filter((v) => v.type === type).map((v) => ({
+function versionEntries(songs, types) {
+  return songs.flatMap((song) => (song.variants || []).filter((v) => types.includes(v.type)).map((v) => ({
     ...song, key: `${song.id}-${v.id}`, title: `${song.title} (${v.name || VERSION_TYPES[v.type] || v.type})`,
     date: v.date || song.date, status: v.status || song.status, play: v.play, types: [v.type], variant: v,
     album: v.album, file: v.file,  // the release this version is on (none: known only from sources)
@@ -247,15 +254,18 @@ function versionEntries(songs, type) {
 
 function renderSongs() {
   saveFilters();
-  const vtype = $("vtype").value;
-  const base = vtype === "wanted" ? filteredSongs() : vtype ? versionEntries(filteredSongs(), vtype) : filteredSongs();
+  const vtypes = chosen("vtype"), wanted = vtypes.has("wanted"), types = [...vtypes].filter((t) => t !== "wanted");
+  const filtered = filteredSongs();
+  const base = types.length ? [...versionEntries(filtered, types), ...(wanted ? filtered.filter((s) => s.wanted) : [])] : filtered;
   for (const chip of document.querySelectorAll(".chip")) {
     chip.querySelector("span").textContent = base.filter((s) => s.status === chip.dataset.status).length;
   }
   const songs = base.filter((s) => state.statuses.has(s.status)).sort(SORTS[$("sort").value] || SORTS.date);
-  $("shown").textContent = vtype === "wanted"
+  const typeNames = types.map((t) => (VERSION_TYPES[t] || t).toLowerCase().replace(/ version$/, ""));
+  $("shown").textContent = wanted && !types.length
     ? `Showing ${plural(songs.length, "wanted song")}: known from snippets only, no full version has leaked`
-    : `Showing ${plural(songs.length, vtype ? `${(VERSION_TYPES[vtype] || vtype).toLowerCase().replace(/ version$/, "")} version` : "song")}`;
+    : types.length ? `Showing ${songs.length} ${typeNames.join(" / ")} version${songs.length === 1 ? "" : "s"}${wanted ? " and wanted songs" : ""}`
+      : `Showing ${plural(songs.length, "song")}`;
   state.shown = songs;
   state.limit = PAGE;
   $("song-list").innerHTML = (VIEWS[state.view] || VIEWS.list)(songs.slice(0, PAGE));
@@ -303,7 +313,8 @@ function setView(view) {
 }
 
 function updateFilterCount() {
-  const active = [$("era").value, $("kind").value !== "own" ? "x" : "", $("vtype").value, $("sort").value !== "date" ? "x" : ""]
+  const active = [chosen("era").size ? "x" : "", $("kind").value !== "own" ? "x" : "", chosen("vtype").size ? "x" : "",
+                  $("sort").value !== "date" ? "x" : ""]
     .filter(Boolean).length;
   $("filter-count").textContent = active ? `(${active})` : "";
 }
@@ -536,13 +547,14 @@ function renderReleases() {
   for (const b of document.querySelectorAll("#release-views button")) b.classList.toggle("on", b.dataset.view === state.releaseView);
   $("release-view-button").textContent = RELEASE_VIEW_LABELS[state.releaseView];
   const query = fold($("release-search").value.trim());
-  const discography = $("discography").value;
-  const type = $("release-type").value;
-  $("release-filter-count").textContent = discography !== "official" || type ? `(${(discography !== "official") + Boolean(type)})` : "";
+  const discos = chosen("discography").size ? chosen("discography") : new Set(["official"]);
+  const types = chosen("release-type");
+  const changed = (discos.size !== 1 || !discos.has("official")) + Boolean(types.size);
+  $("release-filter-count").textContent = changed ? `(${changed})` : "";
   // a query matches any edition, the entry shows the album
-  const groupsHit = new Set(state.releases.filter((r) => r.discography === discography && (!type || r.release_type === type)
+  const groupsHit = new Set(state.releases.filter((r) => discos.has(r.discography) && (!types.size || types.has(r.release_type))
     && (!query || fold(`${r.title} ${r.artist_credit || ""}`).includes(query))).map((r) => r.group_id));
-  const entries = releaseEntries(state.releases.filter((r) => r.discography === discography && groupsHit.has(r.group_id)));
+  const entries = releaseEntries(state.releases.filter((r) => discos.has(r.discography) && groupsHit.has(r.group_id)));
   const byType = new Map();
   for (const entry of entries) {
     if (!byType.has(entry.release_type)) byType.set(entry.release_type, []);
@@ -561,8 +573,8 @@ function renderReleases() {
 const RELEASE_VIEW_LABELS = { list: "☰ List", grid: "▦ Grid", compact: "≡ Compact" };
 $("release-type").addEventListener("change", renderReleases);
 $("reset-release-filters").addEventListener("click", () => {
-  $("discography").value = "official";
-  $("release-type").value = "";
+  setChosen("discography", ["official"]);
+  setChosen("release-type", []);
   refreshChips($("release-filter-menu"));
   renderReleases();
 });
@@ -676,28 +688,58 @@ async function init() {
 }
 
 /* ---------- chip groups: a <select data-chips> shown as pill buttons (the select stays the source of truth) ---------- */
+// The values chosen in a filter (a Set; empty = everything). A <select multiple data-multi>
+// holds several: its chips switch on and off, "All ..." (value "") clears the choice.
+function chosen(id) {
+  return new Set([...$(id).selectedOptions].map((option) => option.value).filter(Boolean));
+}
+function setChosen(id, values) {
+  const select = $(id), wanted = new Set(values.map(String));
+  for (const option of select.options) option.selected = select.multiple ? wanted.has(option.value) : option.value === [...wanted][0];
+  if (select.multiple && ![...select.options].some((option) => option.selected && option.value)) {
+    for (const option of select.options) if (option.value === "") option.selected = true;
+  }
+  refreshChips(select.parentElement);
+}
 function refreshChips(root = document) {
   for (const select of root.querySelectorAll("select[data-chips]")) {
     let group = select.nextElementSibling;
     if (!group || !group.classList.contains("seg")) {
       group = document.createElement("div");
       group.className = "seg";
-      group.setAttribute("role", "radiogroup");
+      group.setAttribute("role", select.multiple ? "group" : "radiogroup");
       select.after(group);
       select.hidden = true;
       group.addEventListener("click", (event) => {
         const button = event.target.closest("button[data-value]");
-        if (!button || button.dataset.value === select.value) return;
+        if (!button) return;
+        if (select.multiple) {
+          const option = [...select.options].find((o) => o.value === button.dataset.value);
+          if (option.value === "") {
+            for (const o of select.options) o.selected = o.value === "";
+          } else {
+            option.selected = !option.selected;
+            const any = [...select.options].some((o) => o.selected && o.value);
+            for (const o of select.options) if (o.value === "") o.selected = !any;
+          }
+          if (![...select.options].some((o) => o.selected)) option.selected = true;  // no "All": keep one choice
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+          return;
+        }
+        if (button.dataset.value === select.value) return;
         select.value = button.dataset.value;
         select.dispatchEvent(new Event("change", { bubbles: true }));
       });
       select.addEventListener("change", () => refreshChips(select.parentElement));
     }
+    const none = select.multiple && ![...select.options].some((o) => o.selected && o.value);
     group.innerHTML = [...select.options].map((option) => {
-      const on = option.value === select.value;
+      const on = select.multiple ? option.selected || (option.value === "" && none) : option.value === select.value;
       const color = option.dataset.color;
       const swatch = color ? `<span class="swatch${color === "cover" ? " cover" : ""}"${color === "cover" ? "" : ` style="background:${esc(color)}"`}></span>` : "";
-      return `<button type="button" role="radio" aria-checked="${on}" class="${on ? "on" : ""}" data-value="${esc(option.value)}">${swatch}${esc(option.textContent)}</button>`;
+      return select.multiple
+        ? `<button type="button" aria-pressed="${on}" class="${on ? "on" : ""}" data-value="${esc(option.value)}">${swatch}${esc(option.textContent)}</button>`
+        : `<button type="button" role="radio" aria-checked="${on}" class="${on ? "on" : ""}" data-value="${esc(option.value)}">${swatch}${esc(option.textContent)}</button>`;
     }).join("");
   }
 }
@@ -707,7 +749,7 @@ const resetAndRender = () => { updateFilterCount(); renderSongs(); };
 $("search").addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(resetAndRender, 150); });
 for (const id of ["era", "kind", "vtype", "sort"]) $(id).addEventListener("change", resetAndRender);
 $("reset-filters").addEventListener("click", () => {
-  $("era").value = ""; $("kind").value = "own"; $("vtype").value = ""; $("sort").value = "date";
+  setChosen("era", []); $("kind").value = "own"; setChosen("vtype", []); $("sort").value = "date";
   refreshChips($("filter-menu"));
   resetAndRender();
 });
@@ -769,9 +811,10 @@ function renderPeople() {
   $("people-view-button").textContent = PEOPLE_VIEWS[state.peopleView];
   for (const b of document.querySelectorAll("#people-views button")) b.classList.toggle("on", b.dataset.view === state.peopleView);
   const query = fold($("people-search").value.trim());
-  const role = $("people-role").value, sort = $("people-sort").value;
-  $("people-filter-count").textContent = role || sort !== "songs" ? `(${Boolean(role) + (sort !== "songs")})` : "";
-  const list = state.people.filter((p) => (!query || fold(p.name).includes(query)) && (!role || p.roles.some(ROLE_GROUPS[role])))
+  const roleSet = chosen("people-role"), sort = $("people-sort").value;
+  $("people-filter-count").textContent = roleSet.size || sort !== "songs" ? `(${Boolean(roleSet.size) + (sort !== "songs")})` : "";
+  const list = state.people.filter((p) => (!query || fold(p.name).includes(query))
+    && (!roleSet.size || [...roleSet].some((role) => p.roles.some(ROLE_GROUPS[role]))))
     .sort(sort === "name" ? (a, b) => a.name.localeCompare(b.name)
       : sort === "first" ? (a, b) => (a.years[0] || "9999").localeCompare(b.years[0] || "9999") || b.songs - a.songs
         : (a, b) => b.songs - a.songs);
@@ -828,7 +871,7 @@ async function renderNetwork() {
 $("people-role").addEventListener("change", renderPeople);
 $("people-sort").addEventListener("change", renderPeople);
 $("reset-people-filters").addEventListener("click", () => {
-  $("people-role").value = ""; $("people-sort").value = "songs";
+  setChosen("people-role", []); $("people-sort").value = "songs";
   refreshChips($("people-filter-menu"));
   renderPeople();
 });
@@ -1282,11 +1325,13 @@ async function renderVideos() {
     const kinds = [...new Set(state.videos.map((v) => v.kind))];
     $("video-kind").insertAdjacentHTML("beforeend", kinds.map((k) => `<option value="${esc(k)}">${esc(VIDEO_KINDS[k] || k)}</option>`).join(""));
     $("video-era").insertAdjacentHTML("beforeend", state.eras.map((e) => `<option value="${e.id}">${esc(eraName(e))}</option>`).join(""));
+    refreshChips($("video-filter-menu"));
   }
-  const query = fold($("video-search").value.trim()), kind = $("video-kind").value, era = $("video-era").value;
+  const query = fold($("video-search").value.trim()), kinds = chosen("video-kind"), eras = chosen("video-era");
   const official = $("video-official").checked;
-  const list = state.videos.filter((v) => (!official || v.official) && (!kind || v.kind === kind)
-    && (!era || v.songs.some((s) => String(s.era) === era))
+  $("video-filter-count").textContent = kinds.size + eras.size ? `(${Boolean(kinds.size) + Boolean(eras.size)})` : "";
+  const list = state.videos.filter((v) => (!official || v.official) && (!kinds.size || kinds.has(v.kind))
+    && (!eras.size || v.songs.some((s) => eras.has(String(s.era))))
     && (!query || fold([v.title, v.channel, ...v.songs.map((s) => s.title)].join(" ")).includes(query)))
     .sort((a, b) => (a.song_date || "9999").localeCompare(b.song_date || "9999"));
   $("video-total").textContent = `${plural(list.length, "video")} · YouTube, played in its privacy-enhanced embed${official ? " · official channels only" : ""}`;
@@ -1304,7 +1349,9 @@ function openVideo(youtubeId) {
   $("video-dialog").showModal();
 }
 function closeVideo() { $("video-frame").innerHTML = ""; if ($("video-dialog").open) $("video-dialog").close(); }
-for (const id of ["video-search", "video-kind", "video-era", "video-official"]) $(id).addEventListener("input", () => renderVideos());
+for (const id of ["video-search", "video-official"]) $(id).addEventListener("input", () => renderVideos());
+for (const id of ["video-kind", "video-era"]) $(id).addEventListener("change", () => renderVideos());
+$("reset-video-filters").addEventListener("click", () => { setChosen("video-kind", []); setChosen("video-era", []); renderVideos(); });
 document.addEventListener("click", (event) => {
   const card = event.target.closest("[data-video]");
   if (card) { event.preventDefault(); openVideo(card.dataset.video); }

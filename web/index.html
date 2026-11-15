@@ -137,13 +137,13 @@
       <details class="menu" id="filter-menu">
         <summary class="menu-button">Filters <span id="filter-count"></span></summary>
         <div class="menu-panel">
-          <div class="field"><span>Era</span><select id="era"><option value="">All eras</option></select></div>
+          <div class="field"><span>Era</span><select id="era" data-chips data-multi multiple><option value="">All eras</option></select></div>
           <div class="field"><span>Songs</span><select id="kind" data-chips>
             <option value="own">Lil Wayne songs</option>
             <option value="guest">Guest appearances</option>
             <option value="all">All songs</option>
           </select></div>
-          <div class="field"><span>Versions</span><select id="vtype" data-chips><option value="">Any version</option></select></div>
+          <div class="field"><span>Versions</span><select id="vtype" data-chips data-multi multiple><option value="">Any version</option></select></div>
           <div class="field"><span>Sort</span><select id="sort" data-chips>
             <option value="date">Date</option>
             <option value="title">Title</option>
@@ -199,8 +199,12 @@
   <section id="videos-view" hidden>
     <div class="filters video-filters">
       <input type="search" id="video-search" placeholder="Search videos, songs, channels…" aria-label="Search videos">
-      <select id="video-kind" aria-label="Kind"><option value="">All kinds</option></select>
-      <select id="video-era" aria-label="Era"><option value="">All eras</option></select>
+      <details class="menu" id="video-filter-menu"><summary class="menu-button">Filters <span id="video-filter-count"></span></summary>
+        <div class="menu-panel">
+          <div class="field"><span>Kind</span><select id="video-kind" data-chips data-multi multiple><option value="">All kinds</option></select></div>
+          <div class="field"><span>Era</span><select id="video-era" data-chips data-multi multiple><option value="">All eras</option></select></div>
+          <button type="button" class="act ghost" id="reset-video-filters">Reset</button>
+        </div></details>
       <label class="check-label"><input type="checkbox" id="video-official" checked> Official channels only</label>
     </div>
     <p class="muted" id="video-total"></p>
@@ -223,11 +227,11 @@
       <details class="menu" id="release-filter-menu">
         <summary class="menu-button">Filters <span id="release-filter-count"></span></summary>
         <div class="menu-panel">
-          <div class="field"><span>Discography</span><select id="discography" data-chips>
-            <option value="official">Official</option>
+          <div class="field"><span>Discography</span><select id="discography" data-chips data-multi multiple>
+            <option value="official" selected>Official</option>
             <option value="unofficial">Unofficial (bootlegs)</option>
           </select></div>
-          <div class="field"><span>Type</span><select id="release-type" data-chips><option value="">All types</option></select></div>
+          <div class="field"><span>Type</span><select id="release-type" data-chips data-multi multiple><option value="">All types</option></select></div>
           <button type="button" class="act ghost" id="reset-release-filters">Reset</button>
         </div>
       </details>
@@ -250,7 +254,7 @@
       <details class="menu" id="people-filter-menu">
         <summary class="menu-button">Filters <span id="people-filter-count"></span></summary>
         <div class="menu-panel">
-          <div class="field"><span>Role</span><select id="people-role" data-chips>
+          <div class="field"><span>Role</span><select id="people-role" data-chips data-multi multiple>
             <option value="">All roles</option>
             <option value="producer">Producers</option>
             <option value="writer">Writers &amp; composers</option>
