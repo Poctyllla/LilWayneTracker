@@ -210,6 +210,7 @@ class ApiContractTests(unittest.TestCase):
         contract["POST /api/review"] = shape(json.loads(body))
         contract["GET /api/v1/"] = shape(self.get_json("/api/v1/"))
         contract["GET /api/v1/eras"] = shape(self.get_json("/api/v1/eras"))
+        contract["GET /api/v1/versions/<id>/sources"] = shape(self.get_json(f"/api/v1/versions/{self.ids['album']}/sources"))
         status, headers, body = self.request(f"/api/audio/{self.ids['file']}", headers={"Range": "bytes=0-99"})
         contract["GET /api/audio/<file id> (Range)"] = {
             "status": status, "Content-Type": headers["Content-Type"], "Accept-Ranges": headers["Accept-Ranges"],
@@ -218,7 +219,8 @@ class ApiContractTests(unittest.TestCase):
 
     def test_every_route_is_covered(self):
         paths = list(self.json_paths()) + list(self.v1_paths()) + [
-            "/api/v1/", "/api/v1", "/api/v1/eras", f"/api/audio/{self.ids['file']}", f"/api/v1/stream/{self.ids['file']}"]
+            "/api/v1/", "/api/v1", "/api/v1/eras", f"/api/audio/{self.ids['file']}", f"/api/v1/stream/{self.ids['file']}",
+            f"/api/v1/versions/{self.ids['album']}/sources"]
         for route in api_routes.ROUTES:
             for pattern in route.patterns:
                 self.assertTrue(any(pattern.match(path) for path in paths), f"no contract for {pattern.pattern}")
@@ -255,6 +257,23 @@ class ApiContractTests(unittest.TestCase):
         for route in api_routes.ROUTES:  # every file name is the route's own v1 path
             self.assertTrue(route.patterns[0].match("/api/" + route.file_name(5 if route.param == "id" else "06-10")
                                                     .replace("v1/index", "v1/")), route.name)
+
+    def test_version_sources(self):
+        """Stage 6: how a version can be played; the static mode lists no local files."""
+        listed = self.get_json(f"/api/v1/versions/{self.ids['album']}/sources")
+        self.assertEqual([s["provider"] for s in listed], ["spotify", "apple_music", "local_file"])
+        self.assertEqual(listed[2]["url"], f"/api/v1/stream/{self.ids['file']}")
+        connection = tracker_data.connect(self.path)
+        try:
+            route = api_routes.BY_NAME["version_sources"]
+            static = route.handler(connection, self.ids["album"], {"mode": "static"})
+            self.assertEqual([s["provider"] for s in static], ["spotify", "apple_music"])
+            self.assertEqual(route.items(connection), [self.ids["album"]])
+        finally:
+            connection.close()
+        with self.assertRaises(urllib.error.HTTPError) as error:
+            self.request("/api/v1/versions/99999/sources")
+        self.assertEqual(error.exception.code, 404)
 
     def test_post_review_on_v1(self):
         items = self.get_json("/api/v1/review")

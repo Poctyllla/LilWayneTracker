@@ -4,10 +4,12 @@
  * this interface (queue, repeat, shuffle, lyrics and the views stay there):
  *
  *   key            the field of a queue item / "play" object it plays (src/audio_providers.py)
+ *   server         the provider name in GET /api/v1/versions/<id>/sources
  *   name, note     shown as "via <name>" (+ note)
  *   capabilities   {seek, volume, position}: what a page can do with it
  *   allowed()      may it play in this mode (local files: the local server only)
- *   play(item)     start the item;  stop()  stop and forget it
+ *   play(item, source)  start the item with a source of that list ({ref} / {url});
+ *                  without one (no list), the item's own field;  stop()  stop and forget it
  *   toggle()       play / pause;    seek(seconds);   setVolume(0..1)
  *
  * An adapter reports to the player through `host` (set by player.js):
@@ -24,14 +26,14 @@ const providerHost = {  // replaced by player.js
 
 // The owner's own files, streamed by the local server (Range requests: seeking works).
 const fileProvider = {
-  key: "file_id", name: "Local file", note: "",
+  key: "file_id", server: "local_file", name: "Local file", note: "",
   capabilities: { seek: true, volume: true, position: true },
   active: false,
   audio: document.getElementById("pl-audio"),
   allowed: () => API.features.stream,
-  play(item) {
+  play(item, source) {
     this.active = true;
-    this.audio.src = `/api/v1/stream/${item.file_id}`;
+    this.audio.src = (source && source.url) || `/api/v1/stream/${item.file_id}`;
     this.audio.play().catch((error) => {  // AbortError: the source changed meanwhile (not a failure)
       if (error.name === "NotAllowedError") providerHost.hint("The browser blocked playback: press ▶.");
     });
@@ -53,7 +55,7 @@ fileProvider.audio.addEventListener("error", () => {
 
 // Spotify's embedded player (iFrame API): whole tracks when signed in, 30 s previews otherwise.
 const spotifyProvider = {
-  key: "spotify", name: "Spotify", note: " (preview unless signed in)",
+  key: "spotify", server: "spotify", name: "Spotify", note: " (preview unless signed in)",
   capabilities: { seek: true, volume: false, position: true },
   active: false, controller: null, api: null, pendingPlay: false, state: { paused: true, position: 0, duration: 0 }, ended: false,
   allowed: () => true,
@@ -69,8 +71,8 @@ const spotifyProvider = {
     });
     return this.api;
   },
-  async play(item) {
-    const uri = `spotify:track:${item.spotify}`;
+  async play(item, source) {
+    const uri = `spotify:track:${(source && source.ref) || item.spotify}`;
     this.active = true;
     this.pendingPlay = true;
     this.ended = false;
@@ -129,13 +131,13 @@ const spotifyProvider = {
 
 // Apple Music's embedded player: no script control (play / pause happen inside it).
 const appleProvider = {
-  key: "apple", name: "Apple Music", note: "",
+  key: "apple", server: "apple_music", name: "Apple Music", note: "",
   capabilities: { seek: false, volume: false, position: false },
   active: false,
   allowed: () => true,
-  play(item) {
+  play(item, source) {
     this.active = true;
-    const url = item.apple.replace("://music.apple.com/", "://embed.music.apple.com/");
+    const url = ((source && source.ref) || item.apple).replace("://music.apple.com/", "://embed.music.apple.com/");
     providerHost.slot("apple").innerHTML = `<iframe title="Apple Music player" src="${esc(url)}" height="175" loading="lazy"
       allow="autoplay *; encrypted-media *; clipboard-write" sandbox="allow-forms allow-popups allow-same-origin allow-scripts allow-storage-access-by-user-activation allow-top-navigation-by-user-activation"></iframe>`;
     providerHost.hint("Press play in the Apple Music player below.");

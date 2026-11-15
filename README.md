@@ -90,6 +90,7 @@ The tracker serves JSON under `/api/v1/` (all routes are defined once in
 | `artists`, `artists/<id>` | most credited people; one person's songs and roles |
 | `eras`, `eras/<id>` | eras; one era with its releases and songs |
 | `on-this-day/<MM-DD>` | releases on that day in earlier years |
+| `versions/<id>/sources` | how a version can be played: official embeds (Spotify, Apple Music) and, locally, a stream |
 | `stream/<file id>`, `lyrics/<version id>`, `review` | local server only |
 
 Each playable version carries its sources (`src/audio_providers.py`): Spotify and Apple Music

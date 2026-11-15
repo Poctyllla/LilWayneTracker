@@ -440,6 +440,17 @@
    "summary_url": "str"
   }
  ],
+ "GET /api/v1/versions/<id>/sources": [
+  {
+   "key": "str",
+   "kind": "str",
+   "provider": "str",
+   "public": "bool",
+   "ref": "str",
+   "supports_range": "bool",
+   "url": "str"
+  }
+ ],
  "POST /api/review": {
   "action": "str",
   "decided": "str",

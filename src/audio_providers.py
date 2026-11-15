@@ -48,6 +48,20 @@ class LinkProvider:
     def value(self, url):
         raise NotImplementedError
 
+    def value_for(self, connection, version_id):
+        """The value for one version (the first usable link), or None."""
+        if not has_table(connection, "version_links"):
+            return None
+        for (url,) in connection.execute("SELECT url FROM version_links WHERE version_id = ? AND service = ? ORDER BY id",
+                                         (version_id, self.service)):
+            value = self.value(url)
+            if value is not None:
+                return value
+        return None
+
+    def source(self, value):
+        return {"provider": self.name, "key": self.key, "kind": self.kind, "public": self.public, "ref": value}
+
 
 class SpotifyProvider(LinkProvider):
     """Spotify iFrame API embed: whole tracks when signed in, 30 s previews otherwise."""
@@ -80,6 +94,17 @@ class LocalFileProvider:
             if Path(file_path).suffix.lower() in AUDIO_TYPES:
                 found.setdefault(version_id, file_id)
         return found
+
+    def value_for(self, connection, version_id):
+        for file_id, file_path in connection.execute(
+                "SELECT id, file_path FROM files WHERE version_id = ? ORDER BY COALESCE(bitrate, 0) DESC, id", (version_id,)):
+            if Path(file_path).suffix.lower() in AUDIO_TYPES:
+                return file_id
+        return None
+
+    def source(self, file_id):
+        return {"provider": self.name, "key": self.key, "kind": self.kind, "public": self.public,
+                "url": f"/api/v1/stream/{file_id}", "supports_range": True}
 
     def resolve(self, connection, file_id):
         """(path, content type) of a file that may be streamed, or None."""
@@ -118,6 +143,22 @@ def song_play(connection, play=None):
 
 def audio_file(connection, file_id):
     return LOCAL_FILES.resolve(connection, file_id)
+
+
+def sources(connection, version_id, public_only=False, providers=None):
+    """[{provider, key, kind, public, ref | url, ...}] -- how one version can be played,
+    in the providers' order (the player picks by the listener's choice); None for an
+    unknown version.  public_only: the static copy (no local files)."""
+    if not connection.execute("SELECT 1 FROM versions WHERE id = ?", (version_id,)).fetchone():
+        return None
+    result = []
+    for provider in providers or PROVIDERS:
+        if public_only and not provider.public:
+            continue
+        value = provider.value_for(connection, version_id)
+        if value is not None:
+            result.append(provider.source(value))
+    return result
 
 
 def private_keys(providers=None):

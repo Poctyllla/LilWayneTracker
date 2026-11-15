@@ -14,6 +14,7 @@ and, if it has an id, how to list its ids for the static copy.
 
 import re
 
+import audio_providers
 import genius_details
 import lyrics_source
 import review_queue
@@ -84,6 +85,12 @@ def artist_ids(connection):
     return sorted(ids)
 
 
+def playable_versions(connection):
+    """Versions with a public source (the static copy writes their source lists)."""
+    public = [p for p in audio_providers.PROVIDERS if p.public]
+    return sorted(audio_providers.playables(connection, public))
+
+
 def month_days(connection):
     return [f"{month:02d}-{day:02d}" for month in range(1, 13) for day in range(1, 32)]
 
@@ -99,6 +106,8 @@ ROUTES = [
     Route("artists", "artists", lambda c, v, x: tracker_data.people(c), legacy="people"),
     Route("artist", "artists/{id}", lambda c, v, x: tracker_data.artist(c, v), legacy="artist/{id}", items=artist_ids),
     Route("eras", "eras", lambda c, v, x: tracker_data.summary(c)["eras"]),
+    Route("version_sources", "versions/{id}/sources", lambda c, v, x: audio_providers.sources(
+        c, v, public_only=x.get("mode") == "static"), items=playable_versions),
     Route("era", "eras/{id}", lambda c, v, x: tracker_data.era(c, v), legacy="era/{id}", items=era_ids),
     Route("stats", "stats", lambda c, v, x: tracker_data.stats(c), legacy="stats"),
     Route("timeline", "timeline", lambda c, v, x: tracker_data.timeline(c), legacy="timeline"),

@@ -44,6 +44,7 @@ const player = { queue: [], original: null, index: -1, source: null, paused: tru
                  repeat: "off", shuffle: false, volume: 80, muted: false, side: "queue",
                  lyrics: null, lyricsFor: null, lyricLine: -1, nextId: 1 };
 const lyricsCache = new Map();
+const sourceCache = new Map();  // version id -> promise of its source list (GET /api/v1/versions/<id>/sources)
 const current = () => PROVIDERS[player.source] || null;  // the adapter playing now
 const can = (capability) => Boolean(current() && current().capabilities[capability]);
 
@@ -190,12 +191,37 @@ function stopAll() {
   for (const provider of Object.values(PROVIDERS)) provider.stop();
 }
 
-function playCurrent(replay = false) {
+// The sources of a version, asked from the API (stage 6); null when there is no list.
+function sourceList(item) {
+  if (!item.v) return Promise.resolve(null);
+  if (!sourceCache.has(item.v)) {
+    sourceCache.set(item.v, getJSON(`/api/v1/versions/${item.v}/sources`).catch(() => null));
+  }
+  return sourceCache.get(item.v);
+}
+
+// {key, source}: the first adapter in the listener's order that may play here and has a
+// source in the list (or, without a list, a field on the item).
+function pickSource(item, listed) {
+  const preferred = preferredSource();
+  for (const key of [preferred, ...PLAYER_ORDER.filter((k) => k !== preferred)]) {
+    const adapter = PROVIDERS[key];
+    if (!adapter.allowed()) continue;
+    if (listed) {
+      const source = listed.find((s) => s.provider === adapter.server);
+      if (source) return { key, source };
+    } else if (item[adapter.key]) {
+      return { key, source: null };
+    }
+  }
+  return null;
+}
+
+async function playCurrent(replay = false) {
   const item = player.queue[player.index];
   if (!item) return;
   stopAll();
   if (!replay) player.repeatedOnce = false;
-  player.source = sourcesOf(item)[0];
   player.position = 0;
   player.duration = 0;
   player.paused = true;
@@ -204,8 +230,18 @@ function playCurrent(replay = false) {
   showHint("");
   $("player").hidden = false;
   document.body.classList.add("has-player");
+  const token = player.playToken = (player.playToken || 0) + 1;
+  const choice = pickSource(item, await sourceList(item));
+  if (token !== player.playToken) return;  // another track was chosen meanwhile
+  if (!choice) {
+    player.source = null;
+    showHint("No source can play this track here.");
+    renderPlayer();
+    return;
+  }
+  player.source = choice.key;
   applyVolume();
-  current().play(item);
+  current().play(item, choice.source);
   mediaSession(item);
   renderPlayer();
   if (isFullOpen() && player.side === "lyrics") loadLyrics();

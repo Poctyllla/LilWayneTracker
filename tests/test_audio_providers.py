@@ -59,6 +59,19 @@ class AudioProviderTests(unittest.TestCase):
         self.assertEqual(play[3], {"youtube": "abc"})
         self.assertEqual(audio_providers.private_keys(providers), {"file_id"})
 
+    def test_sources_of_one_version(self):
+        connection = fixture()
+        self.assertEqual(audio_providers.sources(connection, 2), [
+            {"provider": "spotify", "key": "spotify", "kind": "embed", "public": True, "ref": "0123456789abcdefABCDEF"},
+            {"provider": "apple_music", "key": "apple", "kind": "embed", "public": True,
+             "ref": "https://music.apple.com/us/album/x/1?i=2"}])
+        self.assertEqual(audio_providers.sources(connection, 1), [
+            {"provider": "local_file", "key": "file_id", "kind": "stream", "public": False,
+             "url": "/api/v1/stream/2", "supports_range": True}])  # the better file (higher bitrate)
+        self.assertEqual(audio_providers.sources(connection, 1, public_only=True), [])
+        self.assertEqual(audio_providers.sources(connection, 3), [])  # only an unknown service and a cover image
+        self.assertIsNone(audio_providers.sources(connection, 99))
+
     def test_static_copy_drops_private_sources(self):
         data = {"play": {"v": 2, "spotify": "x", "apple": "y", "file_id": 7}}
         self.assertEqual(export_static.without_local_files(data), {"play": {"v": 2, "spotify": "x", "apple": "y"}})
